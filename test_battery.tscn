@@ -1,0 +1,31 @@
+[gd_scene format=3 uid="uid://cxqwyw8e5l1j2"]
+
+[ext_resource type="Script" path="res://item_pickup.gd" id="1_item"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_battery"]
+albedo_color = Color(0.1, 0.8, 0.4, 1)
+emission_enabled = true
+emission = Color(0.1, 0.8, 0.4, 1)
+emission_energy_multiplier = 0.5
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_battery"]
+material = SubResource("StandardMaterial3D_battery")
+top_radius = 0.08
+bottom_radius = 0.08
+height = 0.3
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_battery"]
+size = Vector3(0.4, 0.6, 0.4)
+
+[node name="TestBattery" type="StaticBody3D"]
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("1_item")
+display_name = "Battery"
+point_value = 5
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("CylinderMesh_battery")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_battery")

@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3 uid="uid://dchaser01monster"]
+
+[ext_resource type="Script" path="res://monster_ai.gd" id="1_monster"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_monster"]
+radius = 0.58
+height = 2.05
+
+[node name="Monster" type="CharacterBody3D"]
+script = ExtResource("1_monster")
+maze_builder_path = NodePath("../MazeBuilder")
+player_path = NodePath("../Player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 1.02, 0)
+shape = SubResource("CapsuleShape3D_monster")

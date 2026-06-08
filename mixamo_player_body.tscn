@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://cr4xoj3715ity"]
+
+[ext_resource type="Script" path="res://mixamo_character.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/mixamo/x_bot.fbx" id="2_body"]
+
+[node name="MixamoPlayerBody" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="Model" parent="." instance=ExtResource("2_body")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)

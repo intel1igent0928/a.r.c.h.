@@ -1,0 +1,35 @@
+[gd_scene load_steps=4 format=3 uid="uid://darchkey01pickup"]
+
+[ext_resource type="Script" path="res://item_pickup.gd" id="1_item"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_key"]
+albedo_color = Color(0.92, 0.70, 0.26, 1)
+metallic = 0.55
+roughness = 0.34
+emission_enabled = true
+emission = Color(0.95, 0.52, 0.12, 1)
+emission_energy_multiplier = 0.35
+
+[sub_resource type="BoxMesh" id="BoxMesh_key"]
+material = SubResource("StandardMaterial3D_key")
+size = Vector3(0.18, 0.08, 0.72)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_key"]
+size = Vector3(0.42, 0.28, 0.86)
+
+[node name="GateKey" type="StaticBody3D"]
+script = ExtResource("1_item")
+display_name = "Gate Key"
+point_value = 25
+description = "A brass key with the A.R.C.H. seal. It fits the exit gate."
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_key")
+
+[node name="KeyHead" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, -0.35)
+mesh = SubResource("BoxMesh_key")
+scale = Vector3(1.7, 0.7, 0.38)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_key")

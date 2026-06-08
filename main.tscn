@@ -1,0 +1,456 @@
+[gd_scene load_steps=41 format=3 uid="uid://kvt561sck0y0"]
+
+[ext_resource type="Script" path="res://player.gd" id="1_player"]
+[ext_resource type="Script" path="res://interaction_system.gd" id="3_interact"]
+[ext_resource type="PackedScene" path="res://test_battery.tscn" id="4_battery"]
+[ext_resource type="PackedScene" path="res://test_artifact.tscn" id="5_artifact"]
+[ext_resource type="PackedScene" path="res://test_flashlight.tscn" id="6_flashlight"]
+[ext_resource type="PackedScene" path="res://mixamo_player_body.tscn" id="9_mixamo"]
+[ext_resource type="Script" path="res://maze_builder.gd" id="10_maze"]
+[ext_resource type="Script" path="res://maze_radar.gd" id="11_radar"]
+[ext_resource type="Script" path="res://game_manager.gd" id="12_manager"]
+[ext_resource type="PackedScene" path="res://key_pickup.tscn" id="13_key"]
+[ext_resource type="PackedScene" path="res://note.tscn" id="14_note"]
+[ext_resource type="PackedScene" path="res://exit_gate.tscn" id="15_gate"]
+[ext_resource type="PackedScene" path="res://monster.tscn" id="16_monster"]
+[ext_resource type="Script" path="res://atmosphere.gd" id="17_atmosphere"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
+sky_top_color = Color(0.42, 0.58, 0.72, 1)
+sky_horizon_color = Color(0.78, 0.70, 0.55, 1)
+ground_bottom_color = Color(0.18, 0.17, 0.15, 1)
+ground_horizon_color = Color(0.36, 0.34, 0.28, 1)
+
+[sub_resource type="Sky" id="Sky_base"]
+sky_material = SubResource("ProceduralSkyMaterial_1")
+
+[sub_resource type="Environment" id="Environment_base"]
+background_mode = 2
+sky = SubResource("Sky_base")
+ambient_light_source = 3
+ambient_light_color = Color(0.68, 0.65, 0.58, 1)
+ambient_light_energy = 0.72
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="StandardMaterial3D" id="Material_floor"]
+albedo_color = Color(0.28, 0.29, 0.27, 1)
+roughness = 0.88
+
+[sub_resource type="BoxMesh" id="Mesh_floor"]
+material = SubResource("Material_floor")
+size = Vector3(34, 0.6, 34)
+
+[sub_resource type="BoxShape3D" id="Shape_floor"]
+size = Vector3(34, 0.6, 34)
+
+[sub_resource type="StandardMaterial3D" id="Material_wall"]
+albedo_color = Color(0.38, 0.39, 0.36, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="Mesh_wall"]
+material = SubResource("Material_wall")
+size = Vector3(34, 4, 0.7)
+
+[sub_resource type="BoxShape3D" id="Shape_wall"]
+size = Vector3(34, 4, 0.7)
+
+[sub_resource type="CapsuleShape3D" id="Shape_player"]
+radius = 0.42
+height = 1.75
+
+[sub_resource type="StandardMaterial3D" id="Material_marker"]
+albedo_color = Color(0.12, 0.78, 0.66, 1)
+emission_enabled = true
+emission = Color(0.08, 0.9, 0.72, 1)
+emission_energy_multiplier = 0.45
+roughness = 0.45
+
+[sub_resource type="BoxMesh" id="Mesh_marker"]
+material = SubResource("Material_marker")
+size = Vector3(1.2, 1.2, 1.2)
+
+[sub_resource type="StandardMaterial3D" id="Material_obstacle"]
+albedo_color = Color(0.46, 0.42, 0.35, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="Mesh_block_low"]
+material = SubResource("Material_obstacle")
+size = Vector3(2.1, 0.55, 1.35)
+
+[sub_resource type="BoxShape3D" id="Shape_block_low"]
+size = Vector3(2.1, 0.55, 1.35)
+
+[sub_resource type="BoxMesh" id="Mesh_block_mid"]
+material = SubResource("Material_obstacle")
+size = Vector3(2.2, 0.72, 1.4)
+
+[sub_resource type="BoxShape3D" id="Shape_block_mid"]
+size = Vector3(2.2, 0.72, 1.4)
+
+[sub_resource type="BoxMesh" id="Mesh_block_long"]
+material = SubResource("Material_obstacle")
+size = Vector3(1.2, 0.62, 4.0)
+
+[sub_resource type="BoxShape3D" id="Shape_block_long"]
+size = Vector3(1.2, 0.62, 4.0)
+
+[sub_resource type="BoxMesh" id="Mesh_block_platform"]
+material = SubResource("Material_obstacle")
+size = Vector3(4.0, 0.45, 3.0)
+
+[sub_resource type="BoxShape3D" id="Shape_block_platform"]
+size = Vector3(4.0, 0.45, 3.0)
+
+[sub_resource type="BoxMesh" id="Mesh_stair_step"]
+material = SubResource("Material_obstacle")
+size = Vector3(3.4, 0.28, 0.95)
+
+[sub_resource type="BoxShape3D" id="Shape_stair_step"]
+size = Vector3(3.4, 0.28, 0.95)
+
+[sub_resource type="BoxMesh" id="Mesh_upper_floor"]
+material = SubResource("Material_obstacle")
+size = Vector3(7.5, 0.42, 7.0)
+
+[sub_resource type="BoxShape3D" id="Shape_upper_floor"]
+size = Vector3(7.5, 0.42, 7.0)
+
+[sub_resource type="BoxMesh" id="Mesh_block_tall"]
+material = SubResource("Material_obstacle")
+size = Vector3(2.0, 0.92, 2.0)
+
+[sub_resource type="BoxShape3D" id="Shape_block_tall"]
+size = Vector3(2.0, 0.92, 2.0)
+
+[sub_resource type="BoxMesh" id="Mesh_block_high"]
+material = SubResource("Material_obstacle")
+size = Vector3(2.0, 1.08, 2.0)
+
+[sub_resource type="BoxShape3D" id="Shape_block_high"]
+size = Vector3(2.0, 1.08, 2.0)
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_base")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.813798, -0.34202, 0.469846, 0, 0.809017, 0.587785, -0.581148, -0.478138, 0.658876, 0, 12, 0)
+light_color = Color(1, 0.86, 0.62, 1)
+light_energy = 0.58
+shadow_enabled = true
+
+[node name="GameManager" type="Node" parent="."]
+script = ExtResource("12_manager")
+
+[node name="Atmosphere" type="Node" parent="."]
+script = ExtResource("17_atmosphere")
+
+[node name="MazeBuilder" type="Node3D" parent="."]
+script = ExtResource("10_maze")
+player_path = NodePath("../Player")
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("Mesh_floor")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("Shape_floor")
+
+[node name="WallNorth" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -17)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallNorth"]
+mesh = SubResource("Mesh_wall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallNorth"]
+shape = SubResource("Shape_wall")
+
+[node name="WallSouth" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 17)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallSouth"]
+mesh = SubResource("Mesh_wall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallSouth"]
+shape = SubResource("Shape_wall")
+
+[node name="WallEast" type="StaticBody3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17, 2, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallEast"]
+mesh = SubResource("Mesh_wall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallEast"]
+shape = SubResource("Shape_wall")
+
+[node name="WallWest" type="StaticBody3D" parent="."]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -17, 2, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="WallWest"]
+mesh = SubResource("Mesh_wall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallWest"]
+shape = SubResource("Shape_wall")
+
+[node name="MovementMarker" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 0, 0.6, -9)
+mesh = SubResource("Mesh_marker")
+
+[node name="MixamoPreview" parent="." instance=ExtResource("9_mixamo")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.5, 1, 4.5)
+start_as_shadow_only = false
+
+[node name="JumpBlockLowA" type="StaticBody3D" parent="."]
+transform = Transform3D(0.984808, 0, -0.173648, 0, 1, 0, 0.173648, 0, 0.984808, -5.5, 0.275, 4)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="JumpBlockLowA"]
+mesh = SubResource("Mesh_block_low")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="JumpBlockLowA"]
+shape = SubResource("Shape_block_low")
+
+[node name="JumpBlockLowB" type="StaticBody3D" parent="."]
+transform = Transform3D(0.866025, 0, 0.5, 0, 1, 0, -0.5, 0, 0.866025, -1.4, 0.275, 0.4)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="JumpBlockLowB"]
+mesh = SubResource("Mesh_block_low")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="JumpBlockLowB"]
+shape = SubResource("Shape_block_low")
+
+[node name="JumpBlockMid" type="StaticBody3D" parent="."]
+transform = Transform3D(0.965926, 0, 0.258819, 0, 1, 0, -0.258819, 0, 0.965926, 3.2, 0.36, -1.8)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="JumpBlockMid"]
+mesh = SubResource("Mesh_block_mid")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="JumpBlockMid"]
+shape = SubResource("Shape_block_mid")
+
+[node name="LongJumpBlock" type="StaticBody3D" parent="."]
+transform = Transform3D(0.34202, 0, -0.939693, 0, 1, 0, 0.939693, 0, 0.34202, 6.3, 0.31, 4.2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="LongJumpBlock"]
+mesh = SubResource("Mesh_block_long")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="LongJumpBlock"]
+shape = SubResource("Shape_block_long")
+
+[node name="PracticePlatform" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0.225, -5)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="PracticePlatform"]
+mesh = SubResource("Mesh_block_platform")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="PracticePlatform"]
+shape = SubResource("Shape_block_platform")
+
+[node name="TallJumpBlockA" type="StaticBody3D" parent="."]
+transform = Transform3D(0.906308, 0, -0.422618, 0, 1, 0, 0.422618, 0, 0.906308, 1.2, 0.46, -7.4)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TallJumpBlockA"]
+mesh = SubResource("Mesh_block_tall")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TallJumpBlockA"]
+shape = SubResource("Shape_block_tall")
+
+[node name="TallJumpBlockB" type="StaticBody3D" parent="."]
+transform = Transform3D(0.819152, 0, 0.573576, 0, 1, 0, -0.573576, 0, 0.819152, 4.8, 0.54, -7.7)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TallJumpBlockB"]
+mesh = SubResource("Mesh_block_high")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TallJumpBlockB"]
+shape = SubResource("Shape_block_high")
+
+[node name="UpperFloor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 1.89, -5.5)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="UpperFloor"]
+mesh = SubResource("Mesh_upper_floor")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="UpperFloor"]
+shape = SubResource("Shape_upper_floor")
+
+[node name="StairStep01" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 0.14, 5.2)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep01"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep01"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep02" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 0.42, 4.25)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep02"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep02"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep03" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 0.7, 3.3)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep03"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep03"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep04" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 0.98, 2.35)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep04"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep04"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep05" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 1.26, 1.4)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep05"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep05"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep06" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 1.54, 0.45)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep06"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep06"]
+shape = SubResource("Shape_stair_step")
+
+[node name="StairStep07" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.6, 1.82, -0.5)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StairStep07"]
+mesh = SubResource("Mesh_stair_step")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StairStep07"]
+shape = SubResource("Shape_stair_step")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 8)
+script = ExtResource("1_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+shape = SubResource("Shape_player")
+
+[node name="MixamoPlayerBody" parent="Player" instance=ExtResource("9_mixamo")]
+
+[node name="InteractionSystem" type="Node" parent="Player"]
+script = ExtResource("3_interact")
+
+[node name="CameraPivot" type="Node3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.72, 0)
+
+[node name="Camera3D" type="Camera3D" parent="Player/CameraPivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+current = true
+fov = 76.0
+
+[node name="Flashlight" type="SpotLight3D" parent="Player/CameraPivot/Camera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08, -0.08, -0.18)
+light_color = Color(1, 0.92, 0.78, 1)
+light_energy = 4.5
+spot_range = 17.0
+spot_angle = 34.0
+
+[node name="ThirdPersonPivot" type="Node3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0)
+
+[node name="ThirdPersonCamera" type="Camera3D" parent="Player/ThirdPersonPivot"]
+transform = Transform3D(1, 0, 0, 0, 0.965926, 0.258819, 0, -0.258819, 0.965926, 0, 0.35, 4.2)
+fov = 72.0
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="MazeRadar" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("11_radar")
+maze_builder_path = NodePath("../../MazeBuilder")
+player_path = NodePath("../../Player")
+
+[node name="TestBattery" parent="." instance=ExtResource("4_battery")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, 5)
+
+[node name="TestArtifact" parent="." instance=ExtResource("5_artifact")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, 5)
+
+[node name="TestFlashlight" parent="." instance=ExtResource("6_flashlight")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 5)
+
+[node name="GateKey" parent="." instance=ExtResource("13_key")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.45, 5)
+
+[node name="NotePickup1" parent="." instance=ExtResource("14_note")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.18, 5)
+description = "The first hall is safe. The inner rooms are not."
+
+[node name="NotePickup2" parent="." instance=ExtResource("14_note")]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, -6, 0.18, 5)
+description = "It walks between warm lights. Do not trust quiet intersections."
+
+[node name="NotePickup3" parent="." instance=ExtResource("14_note")]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -8, 0.18, 5)
+description = "The gate key was hidden near the deep rooms, away from the exit."
+
+[node name="ExitGate" parent="." instance=ExtResource("15_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 5)
+
+[node name="Monster" parent="." instance=ExtResource("16_monster")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.2, 5)
+
+[node name="WindLeft" type="ColorRect" parent="CanvasLayer"]
+modulate = Color(1, 1, 1, 0)
+anchor_bottom = 1.0
+offset_right = 130.0
+mouse_filter = 2
+color = Color(0.58, 0.78, 0.95, 0.28)
+
+[node name="WindRight" type="ColorRect" parent="CanvasLayer"]
+modulate = Color(1, 1, 1, 0)
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -130.0
+mouse_filter = 2
+color = Color(0.58, 0.78, 0.95, 0.28)
+
+[node name="StaminaBar" type="ProgressBar" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 324.0
+offset_bottom = 48.0
+value = 100.0
+show_percentage = false
+
+[node name="StateLabel" type="Label" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 56.0
+offset_right = 480.0
+offset_bottom = 86.0
+text = "Walk"
+
+[node name="HintLabel" type="Label" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 88.0
+offset_right = 760.0
+offset_bottom = 118.0
+text = "WASD move | Shift run | Space jump | Ctrl crouch | Shift+Ctrl slide | V camera | F flashlight | Esc mouse"
