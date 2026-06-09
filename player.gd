@@ -92,7 +92,7 @@ func _ready():
 	_set_camera_mode(false)
 	_update_ui("Walk")
 
-func _unhandled_input(event):
+func _input(event):
 	if not _can_accept_play_input():
 		return
 

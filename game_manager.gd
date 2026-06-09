@@ -50,6 +50,7 @@ func start_game():
 	game_over = false
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_set_ui_interactive(false)
 	_menu_panel.visible = false
 	_pause_panel.visible = false
 	_end_panel.visible = false
@@ -100,6 +101,7 @@ func win_game():
 	exit_open = true
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_set_ui_interactive(true)
 	_show_end("YOU ESCAPED", "You found the key and left the maze with %d note(s). The morning looks fake, but it is yours." % notes_found)
 
 func kill_player(reason := "The monster caught you."):
@@ -108,6 +110,7 @@ func kill_player(reason := "The monster caught you."):
 	game_over = true
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_set_ui_interactive(true)
 	_show_end("YOU DIED", reason)
 
 func scare_pulse(amount := 0.6):
@@ -118,6 +121,7 @@ func _show_start():
 	game_over = false
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_set_ui_interactive(true)
 	_menu_panel.visible = true
 	_pause_panel.visible = false
 	_end_panel.visible = false
@@ -129,6 +133,7 @@ func _toggle_pause():
 	_pause_panel.visible = paused
 	if not paused:
 		_settings_panel.visible = false
+	_set_ui_interactive(paused)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED)
 
 func _update_objective():
@@ -162,6 +167,7 @@ func _build_ui():
 	_root_ui.name = "GameUI"
 	_root_ui.process_mode = Node.PROCESS_MODE_ALWAYS
 	_root_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_root_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_canvas.add_child(_root_ui)
 
 	_fear_overlay = ColorRect.new()
@@ -177,6 +183,7 @@ func _build_ui():
 	_objective_label.offset_top = 122.0
 	_objective_label.offset_right = 620.0
 	_objective_label.offset_bottom = 152.0
+	_objective_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_objective_label.add_theme_color_override("font_color", Color(0.86, 0.92, 0.82, 0.94))
 	_root_ui.add_child(_objective_label)
 
@@ -189,6 +196,7 @@ func _build_ui():
 	_note_label.offset_bottom = 160.0
 	_note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_note_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_note_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_note_label.modulate.a = 0.0
 	_note_label.add_theme_font_size_override("font_size", 18)
 	_note_label.add_theme_color_override("font_color", Color(1.0, 0.90, 0.62, 1.0))
@@ -228,6 +236,7 @@ func _make_panel(node_name: String, box_name: String) -> Panel:
 	var panel = Panel.new()
 	panel.name = node_name
 	panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.offset_left = -260.0
 	panel.offset_top = -170.0
@@ -306,6 +315,7 @@ func _set_mouse_sensitivity(value: float):
 
 func _show_settings():
 	_settings_panel.visible = true
+	_set_ui_interactive(true)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func _hide_settings():
@@ -329,7 +339,16 @@ func is_playing() -> bool:
 
 func _sync_mouse_mode():
 	if not game_started or game_over or get_tree().paused or _settings_panel.visible:
+		_set_ui_interactive(true)
 		if Input.get_mouse_mode() != Input.MOUSE_MODE_VISIBLE:
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	elif Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		_set_ui_interactive(false)
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _set_ui_interactive(interactive: bool):
+	if _root_ui:
+		_root_ui.mouse_filter = Control.MOUSE_FILTER_STOP if interactive else Control.MOUSE_FILTER_IGNORE
+	for panel in [_menu_panel, _pause_panel, _end_panel, _settings_panel]:
+		if panel:
+			panel.mouse_filter = Control.MOUSE_FILTER_STOP if interactive else Control.MOUSE_FILTER_IGNORE
