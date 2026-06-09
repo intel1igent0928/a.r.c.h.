@@ -68,6 +68,17 @@ func world_to_grid(world_position: Vector3) -> Vector2i:
 func grid_to_world(grid_position: Vector2i, y = 0.0) -> Vector3:
 	return world_origin + Vector3(grid_position.x * cell_size, y, grid_position.y * cell_size)
 
+func get_nearest_walkable_world(world_position: Vector3, y := 0.05) -> Vector3:
+	var grid_position = world_to_grid(world_position)
+	if not _is_walkable_cell(radar_grid, grid_position):
+		grid_position = _find_reachable_cell_near(radar_grid, grid_position, {}, 0)
+	return grid_to_world(grid_position, y)
+
+func is_world_walkable(world_position: Vector3) -> bool:
+	if radar_grid.is_empty():
+		return false
+	return _is_walkable_cell(radar_grid, world_to_grid(world_position))
+
 func find_path_world(from_world: Vector3, to_world: Vector3) -> Array[Vector3]:
 	var start = world_to_grid(from_world)
 	var goal = world_to_grid(to_world)

@@ -26,6 +26,8 @@ const MONSTER_SOUND_SAMPLE_RATE = 22050
 @export var hunt_accuracy := 0.62
 @export var pack_alert_range := 70.0
 @export var stuck_repath_time := 1.15
+@export var direct_chase_range := 13.0
+@export var floor_clearance := 0.08
 
 var state = State.SLEEP
 var target_world = Vector3.ZERO
@@ -34,8 +36,10 @@ var path_index = 0
 var _maze_builder: Node
 var _player: Node3D
 var _body_root: Node3D
+var _imported_model: Node3D
 var _pulse := 0.0
 var _repath_timer := 0.0
+var _direct_chase_timer := 0.0
 var _growl_timer := 0.0
 var _memory_timer := 0.0
 var _close_scare_cooldown := 0.0
@@ -93,6 +97,7 @@ func _physics_process(delta: float):
 
 	_pulse += delta
 	_repath_timer = max(_repath_timer - delta, 0.0)
+	_direct_chase_timer = max(_direct_chase_timer - delta, 0.0)
 	_growl_timer = max(_growl_timer - delta, 0.0)
 	_memory_timer = max(_memory_timer - delta, 0.0)
 	_close_scare_cooldown = max(_close_scare_cooldown - delta, 0.0)
@@ -106,7 +111,7 @@ func _physics_process(delta: float):
 func _update_state():
 	var distance_to_player = global_position.distance_to(_player.global_position)
 	if distance_to_player <= catch_range:
-		_play_animation("Punch")
+		_play_animation("Attack")
 		var manager = get_tree().root.find_child("GameManager", true, false)
 		if manager and manager.has_method("kill_player"):
 			manager.kill_player("It found you in the maze.")
@@ -117,6 +122,8 @@ func _update_state():
 	if can_see or distance_to_player <= near_sense_range:
 		_remember_player()
 		state = State.CHASE
+		if can_see and distance_to_player <= direct_chase_range:
+			_direct_chase_timer = 0.45
 		_broadcast_player_spotted()
 		if _repath_timer <= 0.0:
 			_repath_to_player()
@@ -153,23 +160,31 @@ func _update_state():
 
 func _follow_path(delta: float):
 	var before_move = global_position
-	if path.is_empty() or path_index >= path.size():
+	var direct_flat = Vector3.ZERO
+	if _player:
+		direct_flat = Vector3(_player.global_position.x - global_position.x, 0.0, _player.global_position.z - global_position.z)
+
+	if state == State.CHASE and _direct_chase_timer > 0.0 and direct_flat.length() > catch_range * 0.55:
+		_move_towards_flat(_player.global_position, chase_speed, 28.0, delta, "Run")
+	elif path.is_empty() or path_index >= path.size():
 		velocity.x = move_toward(velocity.x, 0.0, 12.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 12.0 * delta)
 		_play_animation("Idle")
 	else:
+		while path_index < path.size() - 1:
+			var waypoint = path[path_index]
+			var flat_to_waypoint = Vector3(waypoint.x - global_position.x, 0.0, waypoint.z - global_position.z)
+			if flat_to_waypoint.length() >= 0.62:
+				break
+			path_index += 1
+
 		var target = path[path_index]
 		var flat_to_target = Vector3(target.x - global_position.x, 0.0, target.z - global_position.z)
 		if flat_to_target.length() < 0.35:
 			path_index += 1
 		else:
 			var speed = _get_move_speed()
-			var direction = flat_to_target.normalized()
-			velocity.x = move_toward(velocity.x, direction.x * speed, 16.0 * delta)
-			velocity.z = move_toward(velocity.z, direction.z * speed, 16.0 * delta)
-			var target_yaw = atan2(-direction.x, -direction.z)
-			rotation.y = lerp_angle(rotation.y, target_yaw, TURN_SPEED * delta)
-			_play_animation("Run" if state == State.CHASE else "Walk")
+			_move_towards_flat(target, speed, 18.0, delta, "Run" if state == State.CHASE else "Walk")
 
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
@@ -178,11 +193,23 @@ func _follow_path(delta: float):
 	move_and_slide()
 	_handle_stuck(delta, before_move)
 
+func _move_towards_flat(world_position: Vector3, speed: float, acceleration: float, delta: float, animation_name: String):
+	var flat = Vector3(world_position.x - global_position.x, 0.0, world_position.z - global_position.z)
+	var direction = flat.normalized() if flat.length() > 0.05 else Vector3.ZERO
+	velocity.x = move_toward(velocity.x, direction.x * speed, acceleration * delta)
+	velocity.z = move_toward(velocity.z, direction.z * speed, acceleration * delta)
+	if direction.length() > 0.01:
+		var target_yaw = atan2(-direction.x, -direction.z)
+		rotation.y = lerp_angle(rotation.y, target_yaw, TURN_SPEED * delta)
+	_play_animation(animation_name)
+
 func _repath_to_player():
 	_remember_player()
 	_repath_to_position(_player.global_position)
 
 func _repath_to_position(world_position: Vector3):
+	if _maze_builder and _maze_builder.has_method("get_nearest_walkable_world"):
+		world_position = _maze_builder.get_nearest_walkable_world(world_position, 0.05)
 	if _maze_builder.has_method("find_path_world"):
 		path = _maze_builder.find_path_world(global_position, world_position)
 		if path.is_empty():
@@ -195,6 +222,8 @@ func _choose_patrol_target():
 	if not _maze_builder or not _maze_builder.has_method("get_monster_patrol_point"):
 		return
 	var point = _maze_builder.get_monster_patrol_point(global_position)
+	if _maze_builder.has_method("get_nearest_walkable_world"):
+		point = _maze_builder.get_nearest_walkable_world(point, 0.05)
 	path = _maze_builder.find_path_world(global_position, point) if _maze_builder.has_method("find_path_world") else [point]
 	path_index = 0
 	_reset_hunt_timer()
@@ -298,6 +327,7 @@ func _update_visuals(delta: float):
 	if _imported_model_active:
 		var intensity = 1.0 if state == State.CHASE else 0.45
 		_body_root.rotation.z = lerp(_body_root.rotation.z, sin(_pulse * 8.0) * 0.035 * intensity, delta * 6.0)
+		_ground_imported_model()
 		return
 	var intensity = 1.0 if state == State.CHASE else 0.45
 	_body_root.position.y = 0.08 + sin(_pulse * (8.0 if state == State.CHASE else 3.5)) * 0.08 * intensity
@@ -361,6 +391,7 @@ func _try_build_imported_creature() -> bool:
 
 	model.name = "ImportedMonsterModel"
 	_body_root.add_child(model)
+	_imported_model = model
 	_normalize_imported_model(model)
 	_prepare_imported_visuals(model)
 	_animation_player = _find_animation_player(model)
@@ -384,13 +415,22 @@ func _normalize_imported_model(model: Node3D):
 	var scale_factor = imported_model_height / bounds.size.y
 	model.scale *= scale_factor
 	bounds = _get_visual_bounds(model)
-	model.global_position.y -= bounds.position.y - global_position.y
+	model.global_position.y += (global_position.y + floor_clearance) - bounds.position.y
+	_ground_imported_model()
+
+func _ground_imported_model():
+	if not _imported_model or not _imported_model.is_inside_tree():
+		return
+	var bounds = _get_visual_bounds(_imported_model)
+	if bounds.size.y <= 0.01:
+		return
+	_imported_model.global_position.y += (global_position.y + floor_clearance) - bounds.position.y
 
 func _get_visual_bounds(root: Node3D) -> AABB:
 	var bounds := AABB()
 	var has_bounds := false
-	for child in root.find_children("*", "VisualInstance3D", true, false):
-		var visual = child as VisualInstance3D
+	for child in root.find_children("*", "GeometryInstance3D", true, false):
+		var visual = child as GeometryInstance3D
 		if not visual:
 			continue
 		var local_aabb = visual.get_aabb()
@@ -463,11 +503,30 @@ func _pick_animation(anim_name: String) -> String:
 	if _animation_player.has_animation(anim_name):
 		return anim_name
 	var desired = anim_name.to_lower()
-	for candidate in _animation_player.get_animation_list():
+	var animation_list = _animation_player.get_animation_list()
+	for candidate in animation_list:
 		var lower = candidate.to_lower()
 		if lower == desired or lower.ends_with("/" + desired) or lower.contains(desired):
 			return candidate
-	var animation_list = _animation_player.get_animation_list()
+	if desired == "attack":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("attack") or lower.contains("hit") or lower.contains("punch"):
+				return candidate
+	if desired == "run":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("run") or lower.contains("walk") or lower.contains("take"):
+				return candidate
+	if desired == "walk":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("walk") or lower.contains("run") or lower.contains("take"):
+				return candidate
+	for candidate in animation_list:
+		var lower = candidate.to_lower()
+		if lower.contains("take") or lower.contains("action"):
+			return candidate
 	if not animation_list.is_empty():
 		return animation_list[0]
 	return ""

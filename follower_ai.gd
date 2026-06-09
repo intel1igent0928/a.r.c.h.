@@ -1,6 +1,6 @@
 extends CharacterBody3D
 
-enum FollowStyle { CLOSE, CAUTIOUS, ORBIT, SPRINTER }
+enum FollowStyle { CLOSE, CAUTIOUS, STEADY, SPRINTER }
 
 const GRAVITY = 24.0
 const TURN_SPEED = 9.0
@@ -18,12 +18,16 @@ const TURN_SPEED = 9.0
 @export var repath_interval := 0.32
 @export var teleport_distance := 38.0
 @export var bob_strength := 0.035
+@export var floor_clearance := 0.03
+@export var separation_radius := 1.85
+@export var separation_force := 2.6
 
 var path: Array[Vector3] = []
 var path_index := 0
 var _player: Node3D
 var _maze_builder: Node
 var _body_root: Node3D
+var _imported_model: Node3D
 var _animation_player: AnimationPlayer
 var _current_animation := ""
 var _repath_timer := 0.0
@@ -80,13 +84,19 @@ func _get_follow_target() -> Vector3:
 		FollowStyle.CAUTIOUS:
 			distance = follow_distance + 1.8
 			lateral += sin(_pulse * 0.9) * 1.4
-		FollowStyle.ORBIT:
-			var angle = _pulse * 0.75 + side_offset
-			return _player.global_position + Vector3(cos(angle), 0.0, sin(angle)) * follow_distance
+		FollowStyle.STEADY:
+			distance = follow_distance + 0.7
+			lateral += sin(_pulse * 0.55 + side_offset) * 0.35
 		FollowStyle.SPRINTER:
 			distance = follow_distance if _player.global_position.distance_to(global_position) < 10.0 else follow_distance * 0.6
 
-	return _player.global_position - forward * distance + right * lateral
+	var target = _player.global_position - forward * distance + right * lateral
+	target.y = 0.05
+	if _maze_builder and _maze_builder.has_method("is_world_walkable") and _maze_builder.is_world_walkable(target):
+		return target
+	if _maze_builder and _maze_builder.has_method("get_nearest_walkable_world"):
+		target = _maze_builder.get_nearest_walkable_world(target, 0.05)
+	return target
 
 func _repath_to(target: Vector3):
 	if _maze_builder.has_method("find_path_world"):
@@ -114,27 +124,49 @@ func _follow_path(delta: float, target: Vector3):
 		velocity.z = move_toward(velocity.z, 0.0, 18.0 * delta)
 		_play_animation("Idle")
 	else:
-		var direction = flat.normalized()
+		var direction = flat.normalized() if flat.length() > 0.05 else Vector3.ZERO
 		var speed = sprint_speed if distance_to_player > follow_distance + 5.0 or follow_style == FollowStyle.SPRINTER else move_speed
 		velocity.x = move_toward(velocity.x, direction.x * speed, 22.0 * delta)
 		velocity.z = move_toward(velocity.z, direction.z * speed, 22.0 * delta)
-		var target_yaw = atan2(-direction.x, -direction.z)
-		rotation.y = lerp_angle(rotation.y, target_yaw, TURN_SPEED * delta)
+		if direction.length() > 0.01:
+			var target_yaw = atan2(-direction.x, -direction.z)
+			rotation.y = lerp_angle(rotation.y, target_yaw, TURN_SPEED * delta)
 		_play_animation("Run" if speed > move_speed + 0.2 else "Walk")
 
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
 	else:
 		velocity.y = 0.0
+	_apply_separation(delta)
 	move_and_slide()
+
+func _apply_separation(delta: float):
+	var push = Vector3.ZERO
+	for node in get_tree().get_nodes_in_group("followers"):
+		if node == self:
+			continue
+		var other = node as Node3D
+		if not other:
+			continue
+		var flat = Vector3(global_position.x - other.global_position.x, 0.0, global_position.z - other.global_position.z)
+		var distance = flat.length()
+		if distance <= 0.001 or distance >= separation_radius:
+			continue
+		push += flat.normalized() * (1.0 - distance / separation_radius)
+	if push.length() <= 0.001:
+		return
+	velocity.x += push.x * separation_force
+	velocity.z += push.z * separation_force
 
 func _update_visuals(delta: float):
 	if not _body_root:
 		return
 	var speed = Vector2(velocity.x, velocity.z).length()
-	var bob = sin(_pulse * lerp(4.5, 9.5, clamp(speed / sprint_speed, 0.0, 1.0))) * bob_strength
+	var speed_ratio = clamp(speed / sprint_speed, 0.0, 1.0)
+	var bob = (0.5 + sin(_pulse * lerp(4.5, 9.5, speed_ratio)) * 0.5) * bob_strength * speed_ratio
 	_body_root.position.y = lerp(_body_root.position.y, bob, delta * 8.0)
 	_body_root.rotation.z = lerp(_body_root.rotation.z, sin(_pulse * 5.0) * 0.025 * clamp(speed / move_speed, 0.0, 1.0), delta * 7.0)
+	_ground_imported_model()
 
 func _build_character():
 	_body_root = Node3D.new()
@@ -148,6 +180,7 @@ func _build_character():
 			model.name = "ImportedFollowerModel"
 			model.rotation_degrees.y = model_yaw_degrees
 			_body_root.add_child(model)
+			_imported_model = model
 			_normalize_imported_model(model)
 			_prepare_visuals(model)
 			_animation_player = _find_animation_player(model)
@@ -171,13 +204,22 @@ func _normalize_imported_model(model: Node3D):
 	var scale_factor = character_height / bounds.size.y
 	model.scale *= scale_factor
 	bounds = _get_visual_bounds(model)
-	model.global_position.y -= bounds.position.y - global_position.y
+	model.global_position.y += (global_position.y + floor_clearance) - bounds.position.y
+	_ground_imported_model()
+
+func _ground_imported_model():
+	if not _imported_model or not _imported_model.is_inside_tree():
+		return
+	var bounds = _get_visual_bounds(_imported_model)
+	if bounds.size.y <= 0.01:
+		return
+	_imported_model.global_position.y += (global_position.y + floor_clearance) - bounds.position.y
 
 func _get_visual_bounds(root: Node3D) -> AABB:
 	var bounds := AABB()
 	var has_bounds := false
-	for child in root.find_children("*", "VisualInstance3D", true, false):
-		var visual = child as VisualInstance3D
+	for child in root.find_children("*", "GeometryInstance3D", true, false):
+		var visual = child as GeometryInstance3D
 		if not visual:
 			continue
 		var global_aabb = _transform_aabb(visual.global_transform, visual.get_aabb())
@@ -241,9 +283,23 @@ func _pick_animation(anim_name: String) -> String:
 	if _animation_player.has_animation(anim_name):
 		return anim_name
 	var desired = anim_name.to_lower()
+	var animation_list = _animation_player.get_animation_list()
 	for candidate in _animation_player.get_animation_list():
 		var lower = candidate.to_lower()
-		if lower == desired or lower.contains(desired) or lower.contains("take") or lower.contains("run"):
+		if lower == desired or lower.contains(desired):
 			return candidate
-	var animation_list = _animation_player.get_animation_list()
+	if desired == "run":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("walk") or lower.contains("action") or lower.contains("run"):
+				return candidate
+	if desired == "walk":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("walk") or lower.contains("run") or lower.contains("action"):
+				return candidate
+	for candidate in animation_list:
+		var lower = candidate.to_lower()
+		if lower.contains("take") or lower.contains("action"):
+			return candidate
 	return animation_list[0] if not animation_list.is_empty() else ""
