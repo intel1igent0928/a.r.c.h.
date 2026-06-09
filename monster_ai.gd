@@ -21,6 +21,11 @@ const MONSTER_SOUND_SAMPLE_RATE = 22050
 @export var memory_time := 8.0
 @export var scare_power := 1.0
 @export var voice_pitch := 1.0
+@export var hunt_interval_min := 5.0
+@export var hunt_interval_max := 9.0
+@export var hunt_accuracy := 0.62
+@export var pack_alert_range := 70.0
+@export var stuck_repath_time := 1.15
 
 var state = State.SLEEP
 var target_world = Vector3.ZERO
@@ -34,6 +39,10 @@ var _repath_timer := 0.0
 var _growl_timer := 0.0
 var _memory_timer := 0.0
 var _close_scare_cooldown := 0.0
+var _hunt_timer := 0.0
+var _pack_alert_cooldown := 0.0
+var _stuck_timer := 0.0
+var _last_step_position := Vector3.ZERO
 var _last_known_player_position := Vector3.ZERO
 var _animation_player: AnimationPlayer
 var _current_animation := ""
@@ -50,6 +59,7 @@ func _ready():
 	_player = get_node_or_null(player_path) as Node3D
 	_build_creature()
 	_build_monster_audio()
+	_reset_hunt_timer()
 	set_active(false)
 
 func set_active(enabled: bool):
@@ -57,13 +67,25 @@ func set_active(enabled: bool):
 	visible = enabled
 	set_physics_process(enabled)
 	if enabled:
+		_last_step_position = global_position
+		_reset_hunt_timer()
 		_choose_patrol_target()
 
 func alert_to_player():
 	if state == State.SLEEP:
 		set_active(true)
 	state = State.CHASE
+	_broadcast_player_spotted()
 	_repath_to_player()
+
+func receive_pack_alert(world_position: Vector3):
+	if state == State.SLEEP:
+		set_active(true)
+	if state != State.CHASE:
+		state = State.INVESTIGATE
+		_last_known_player_position = world_position
+		_memory_timer = memory_time * 0.75
+		_repath_to_position(world_position)
 
 func _physics_process(delta: float):
 	if not _player or not _maze_builder:
@@ -74,6 +96,8 @@ func _physics_process(delta: float):
 	_growl_timer = max(_growl_timer - delta, 0.0)
 	_memory_timer = max(_memory_timer - delta, 0.0)
 	_close_scare_cooldown = max(_close_scare_cooldown - delta, 0.0)
+	_hunt_timer = max(_hunt_timer - delta, 0.0)
+	_pack_alert_cooldown = max(_pack_alert_cooldown - delta, 0.0)
 	_update_state()
 	_follow_path(delta)
 	_update_visuals(delta)
@@ -93,6 +117,7 @@ func _update_state():
 	if can_see or distance_to_player <= near_sense_range:
 		_remember_player()
 		state = State.CHASE
+		_broadcast_player_spotted()
 		if _repath_timer <= 0.0:
 			_repath_to_player()
 			_repath_timer = 0.22
@@ -120,8 +145,14 @@ func _update_state():
 			_choose_patrol_target()
 	elif state == State.PATROL and (path.is_empty() or path_index >= path.size()):
 		_choose_patrol_target()
+	elif state == State.PATROL and _hunt_timer <= 0.0:
+		_start_hunt()
+
+	if visible and distance_to_player < 11.0:
+		_scare_player(0.006 * scare_power)
 
 func _follow_path(delta: float):
+	var before_move = global_position
 	if path.is_empty() or path_index >= path.size():
 		velocity.x = move_toward(velocity.x, 0.0, 12.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 12.0 * delta)
@@ -145,6 +176,7 @@ func _follow_path(delta: float):
 	else:
 		velocity.y = 0.0
 	move_and_slide()
+	_handle_stuck(delta, before_move)
 
 func _repath_to_player():
 	_remember_player()
@@ -165,6 +197,7 @@ func _choose_patrol_target():
 	var point = _maze_builder.get_monster_patrol_point(global_position)
 	path = _maze_builder.find_path_world(global_position, point) if _maze_builder.has_method("find_path_world") else [point]
 	path_index = 0
+	_reset_hunt_timer()
 
 func _can_see_player(distance_to_player: float) -> bool:
 	if distance_to_player > detect_range:
@@ -189,6 +222,63 @@ func _can_hear_player(distance_to_player: float) -> bool:
 func _remember_player():
 	_last_known_player_position = _player.global_position
 	_memory_timer = memory_time
+
+func _start_hunt():
+	if not _player:
+		return
+	state = State.INVESTIGATE
+	var offset_radius = lerp(10.0, 2.5, clamp(hunt_accuracy, 0.0, 1.0))
+	var offset = Vector3(randf_range(-offset_radius, offset_radius), 0.0, randf_range(-offset_radius, offset_radius))
+	_last_known_player_position = _player.global_position + offset
+	_memory_timer = memory_time * 0.65
+	_repath_to_position(_last_known_player_position)
+	_scare_player(0.16 * scare_power)
+	_reset_hunt_timer()
+
+func _reset_hunt_timer():
+	_hunt_timer = randf_range(hunt_interval_min, hunt_interval_max)
+
+func _broadcast_player_spotted():
+	if _pack_alert_cooldown > 0.0:
+		return
+	_pack_alert_cooldown = 1.2
+	for node in get_tree().get_nodes_in_group("monsters"):
+		if node == self:
+			continue
+		var monster = node as Node3D
+		if not monster:
+			continue
+		if global_position.distance_to(monster.global_position) > pack_alert_range:
+			continue
+		if node.has_method("receive_pack_alert"):
+			node.receive_pack_alert(_player.global_position)
+
+func _handle_stuck(delta: float, before_move: Vector3):
+	var flat_velocity = Vector2(velocity.x, velocity.z).length()
+	if flat_velocity < 0.35 or path.is_empty() or path_index >= path.size():
+		_stuck_timer = 0.0
+		_last_step_position = global_position
+		return
+
+	var moved = Vector2(global_position.x - before_move.x, global_position.z - before_move.z).length()
+	if moved < 0.025:
+		_stuck_timer += delta
+	else:
+		_stuck_timer = 0.0
+		_last_step_position = global_position
+		return
+
+	if _stuck_timer < stuck_repath_time:
+		return
+	_stuck_timer = 0.0
+	if path_index < path.size() - 1:
+		path_index += 1
+	elif state == State.CHASE and _player:
+		_repath_to_player()
+	elif state == State.INVESTIGATE:
+		_repath_to_position(_last_known_player_position)
+	else:
+		_choose_patrol_target()
 
 func _get_move_speed() -> float:
 	if state == State.CHASE:

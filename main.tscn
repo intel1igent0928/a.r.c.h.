@@ -455,6 +455,41 @@ near_sense_range = 7.0
 scare_power = 1.45
 voice_pitch = 0.62
 
+[node name="MonsterNoFace" parent="." instance=ExtResource("16_monster")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0.2, 11)
+monster_model_path = "res://assets/monsters/noface/no_face.glb"
+imported_model_height = 2.85
+patrol_speed = 2.05
+investigate_speed = 3.45
+chase_speed = 5.85
+detect_range = 36.0
+hearing_range = 22.0
+near_sense_range = 10.0
+memory_time = 12.0
+scare_power = 1.65
+voice_pitch = 0.48
+hunt_interval_min = 3.8
+hunt_interval_max = 6.5
+hunt_accuracy = 0.78
+
+[node name="MonsterRaphael" parent="." instance=ExtResource("16_monster")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 0.2, 13)
+monster_model_path = "res://assets/monsters/raphael/raphael.glb"
+imported_model_height = 2.2
+patrol_speed = 3.1
+investigate_speed = 4.25
+chase_speed = 7.35
+detect_range = 28.0
+hearing_range = 21.0
+near_sense_range = 8.5
+catch_range = 1.35
+memory_time = 7.0
+scare_power = 0.95
+voice_pitch = 1.42
+hunt_interval_min = 4.5
+hunt_interval_max = 7.0
+hunt_accuracy = 0.7
+
 [node name="WindLeft" type="ColorRect" parent="CanvasLayer"]
 modulate = Color(1, 1, 1, 0)
 anchor_bottom = 1.0

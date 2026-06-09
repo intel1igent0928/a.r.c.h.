@@ -951,22 +951,33 @@ func _place_monsters():
 	var rng = RandomNumberGenerator.new()
 	rng.seed = maze_seed + 917
 	var reserved := {}
-	var first_target = _choose_cell_by_route_distance(radar_grid, distances, int(route_length * 0.38), int(route_length * 0.58), reserved, rng)
-	if first_target != Vector2i(-1, -1):
-		reserved[first_target] = true
-	var second_target = _choose_cell_by_route_distance(radar_grid, distances, int(route_length * 0.55), int(route_length * 0.78), reserved, rng)
-	if second_target != Vector2i(-1, -1):
-		reserved[second_target] = true
-	var monster_targets: Array[Vector2i] = [first_target, second_target, monster_spawn_grid]
 	var monster_paths = [
 		"/root/Main/Monster",
 		"/root/Main/MonsterHie",
 		"/root/Main/MonsterChest",
+		"/root/Main/MonsterNoFace",
+		"/root/Main/MonsterRaphael",
 	]
+	var route_windows = [
+		Vector2(0.28, 0.44),
+		Vector2(0.40, 0.58),
+		Vector2(0.52, 0.70),
+		Vector2(0.64, 0.84),
+		Vector2(0.72, 0.93),
+	]
+	var monster_targets: Array[Vector2i] = []
+	for i in range(monster_paths.size()):
+		var window = route_windows[min(i, route_windows.size() - 1)]
+		var cell = _choose_cell_by_route_distance(radar_grid, distances, int(route_length * window.x), int(route_length * window.y), reserved, rng)
+		if i == monster_paths.size() - 1 and _is_walkable_cell(radar_grid, monster_spawn_grid):
+			cell = monster_spawn_grid
+		if cell != Vector2i(-1, -1):
+			reserved[cell] = true
+		monster_targets.append(cell)
 
 	for i in range(monster_paths.size()):
 		var cell = monster_targets[i]
-		if cell == Vector2i(-1, -1) or reserved.has(cell) and i > 1 or not _is_walkable_cell(radar_grid, cell):
+		if cell == Vector2i(-1, -1) or not _is_walkable_cell(radar_grid, cell):
 			var t = float(i + 2) / float(monster_paths.size() + 2)
 			var fallback = Vector2i(
 				int(round(lerp(float(start_grid.x), float(exit_grid.x), t))),
