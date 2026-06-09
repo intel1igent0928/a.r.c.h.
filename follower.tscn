@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3 uid="uid://archfollowerbase"]
+
+[ext_resource type="Script" path="res://follower_ai.gd" id="1_follower"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_follower"]
+radius = 0.32
+height = 1.55
+
+[node name="Follower" type="CharacterBody3D"]
+collision_layer = 0
+script = ExtResource("1_follower")
+player_path = NodePath("../Player")
+maze_builder_path = NodePath("../MazeBuilder")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.78, 0)
+shape = SubResource("CapsuleShape3D_follower")
