@@ -20,7 +20,7 @@ const JUMP_VELOCITY = 6.0
 const RUN_JUMP_VELOCITY = 7.35
 const RUN_JUMP_STAMINA_COST = 13.0
 
-const MAX_STAMINA = 100.0
+const MAX_STAMINA = 200.0
 const RUN_DRAIN = 34.0
 const RECOVERY_RATE = 12.0
 const RECOVERY_DELAY = 0.5
@@ -90,6 +90,8 @@ func _ready():
 		flashlight.visible = false
 	if player_hands and player_hands.has_method("show_flashlight"):
 		player_hands.show_flashlight(false)
+	if stamina_bar:
+		stamina_bar.max_value = MAX_STAMINA
 	_build_footstep_audio()
 	_set_camera_mode(false)
 	_update_ui("Walk")

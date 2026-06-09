@@ -22,10 +22,10 @@ const PROP_MODEL_SCRIPT = preload("res://prop_model.gd")
 @export var max_wall_height = 11.5
 @export var branch_rate = 0.90
 @export var maze_seed = 1842
-@export var extra_loops = 11
-@export var dead_end_spurs = 18
-@export var room_count = 5
-@export var landmark_count = 12
+@export var extra_loops = 4
+@export var dead_end_spurs = 22
+@export var room_count = 2
+@export var landmark_count = 8
 @export var max_dead_end_length = 8
 @export var dead_end_removal_rate = 0.0
 @export var obstacle_chance = 0.24
@@ -162,6 +162,7 @@ func _generate_maze():
 		active.append(next_cell)
 
 	_add_extra_loops(rows, rng, extra_loops)
+	_add_progression_loops(rows, rng, 9)
 	_set_cell(rows, start_grid, START)
 	_set_cell(rows, exit_grid, EXIT)
 	_carve_story_rooms(rows, rng)
@@ -200,9 +201,52 @@ func _add_extra_loops(rows: Array[String], rng: RandomNumberGenerator, loop_coun
 				_set_cell(rows, between, PATH)
 				break
 
+func _add_progression_loops(rows: Array[String], rng: RandomNumberGenerator, loop_count: int):
+	var distances = _get_distance_map(rows, start_grid)
+	if distances.is_empty():
+		return
+
+	var far_distance = 0
+	for value in distances.values():
+		far_distance = max(far_distance, int(value))
+
+	var candidates: Array[Vector2i] = []
+	for key in distances.keys():
+		var cell = key
+		var distance = int(distances[cell])
+		if distance < int(far_distance * 0.36):
+			continue
+		if room_cells.has(cell) or _count_path_neighbors(rows, cell) > 2:
+			continue
+		candidates.append(cell)
+
+	_shuffle_cells(candidates, rng)
+	var made = 0
+	for cell in candidates:
+		if made >= loop_count:
+			break
+		var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+		_shuffle_cells(dirs, rng)
+		for dir in dirs:
+			var between = cell + dir
+			var other = cell + dir * 2
+			if other.y < 0 or other.y >= rows.size() or other.x < 0 or other.x >= rows[other.y].length() or _get_cell(rows, between) != WALL:
+				continue
+			if not _is_walkable_cell(rows, other):
+				continue
+			if _count_path_neighbors(rows, between) > 1:
+				continue
+			_set_cell(rows, between, PATH)
+			made += 1
+			break
+
 func _carve_story_rooms(rows: Array[String], rng: RandomNumberGenerator):
 	var candidates = _get_walkable_cells(rows)
 	_shuffle_cells(candidates, rng)
+	var distances = _get_distance_map(rows, start_grid)
+	var far_distance = 0
+	for value in distances.values():
+		far_distance = max(far_distance, int(value))
 
 	var selected: Array[Vector2i] = []
 	var made = 0
@@ -212,6 +256,8 @@ func _carve_story_rooms(rows: Array[String], rng: RandomNumberGenerator):
 		if center.x <= 2 or center.y <= 2 or center.x >= rows[0].length() - 3 or center.y >= rows.size() - 3:
 			continue
 		if center.distance_to(start_grid) < 4.0 or center.distance_to(exit_grid) < 4.0:
+			continue
+		if int(distances.get(center, 0)) < int(far_distance * 0.44):
 			continue
 		var too_close = false
 		for other in selected:
@@ -223,17 +269,12 @@ func _carve_story_rooms(rows: Array[String], rng: RandomNumberGenerator):
 
 		var half_w = 1
 		var half_h = 1
-		if rng.randf() < 0.28:
-			if rng.randf() < 0.5:
-				half_w = 2
-			else:
-				half_h = 2
 		_carve_room(rows, center, half_w, half_h)
 		selected.append(center)
 		made += 1
 
 	# Small pads make start and exit readable without opening the outer border.
-	_carve_room(rows, start_grid, 1, 1)
+	_carve_room(rows, start_grid, 0, 0)
 	_carve_room(rows, exit_grid, 1, 1)
 	_set_cell(rows, start_grid, START)
 	_set_cell(rows, exit_grid, EXIT)
@@ -253,13 +294,13 @@ func _carve_room(rows: Array[String], center: Vector2i, half_w: int, half_h: int
 			room_cells[pos] = true
 
 func _carve_cave_sector(rows: Array[String], rng: RandomNumberGenerator):
-	var desired_center = Vector2i(int(rows[0].length() * 0.52), int(rows.size() * 0.50))
+	var desired_center = Vector2i(int(rows[0].length() * 0.62), int(rows.size() * 0.55))
 	var center = _find_reachable_cell_near(rows, desired_center, {}, 4)
 	if center == start_grid:
 		center = desired_center
 
-	var radius_x = 5
-	var radius_y = 4
+	var radius_x = 3
+	var radius_y = 3
 	var min_x = clamp(center.x - radius_x, 2, rows[0].length() - 4)
 	var max_x = clamp(center.x + radius_x, 3, rows[0].length() - 3)
 	var min_y = clamp(center.y - radius_y, 2, rows.size() - 4)
@@ -278,10 +319,8 @@ func _carve_cave_sector(rows: Array[String], rng: RandomNumberGenerator):
 
 	var pockets = [
 		center,
-		center + Vector2i(-3, -2),
-		center + Vector2i(3, 2),
-		center + Vector2i(-2, 2),
-		center + Vector2i(2, -2),
+		center + Vector2i(-2, 1),
+		center + Vector2i(2, -1),
 	]
 	for pocket in pockets:
 		_carve_cave_pocket(rows, pocket, rng)
@@ -305,7 +344,7 @@ func _carve_cave_wander(rows: Array[String], from_cell: Vector2i, to_cell: Vecto
 		current = _clamp_to_rect(current + step, bounds)
 		_carve_cave_cell(rows, current)
 
-		if rng.randf() < 0.38:
+		if rng.randf() < 0.22:
 			var side = Vector2i(-step.y, step.x)
 			if side == Vector2i.ZERO:
 				side = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP][rng.randi_range(0, 3)]
@@ -317,9 +356,9 @@ func _carve_cave_pocket(rows: Array[String], center: Vector2i, rng: RandomNumber
 			var pos = center + Vector2i(x, y)
 			if pos.x <= 1 or pos.y <= 1 or pos.x >= rows[0].length() - 2 or pos.y >= rows.size() - 2:
 				continue
-			if abs(x) + abs(y) > 2:
+			if abs(x) + abs(y) > 1:
 				continue
-			if abs(x) == 1 and abs(y) == 1 and rng.randf() < 0.55:
+			if abs(x) + abs(y) == 1 and rng.randf() < 0.35:
 				continue
 			_carve_cave_cell(rows, pos)
 
@@ -700,7 +739,7 @@ func _should_add_room_ruin(cell: Vector2i) -> bool:
 		return false
 	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
 		return false
-	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 4 == 0
+	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 7 == 0
 
 func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
@@ -731,7 +770,7 @@ func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumb
 func _should_add_cave_feature(cell: Vector2i) -> bool:
 	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
 		return false
-	return int(abs(cell.x * 47 + cell.y * 19 + maze_seed)) % 2 == 0
+	return int(abs(cell.x * 47 + cell.y * 19 + maze_seed)) % 5 == 0
 
 func _add_cave_feature(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
@@ -769,7 +808,7 @@ func _should_add_floor_detail(cell: Vector2i) -> bool:
 		return false
 	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
 		return false
-	var chance_divisor = 3 if room_cells.has(cell) else 5
+	var chance_divisor = 7 if room_cells.has(cell) else 12
 	return int(abs(cell.x * 13 + cell.y * 29 + maze_seed)) % chance_divisor == 0
 
 func _add_floor_detail(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):

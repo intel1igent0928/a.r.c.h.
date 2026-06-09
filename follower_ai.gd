@@ -18,7 +18,7 @@ const TURN_SPEED = 9.0
 @export var repath_interval := 0.32
 @export var teleport_distance := 38.0
 @export var bob_strength := 0.035
-@export var floor_clearance := 0.03
+@export var floor_clearance := 0.08
 @export var separation_radius := 1.85
 @export var separation_force := 2.6
 
@@ -274,7 +274,12 @@ func _play_animation(anim_name: String):
 	if not _animation_player:
 		return
 	var animation_name = _pick_animation(anim_name)
-	if animation_name.is_empty() or animation_name == _current_animation:
+	if animation_name.is_empty():
+		if anim_name == "Idle":
+			_animation_player.pause()
+			_current_animation = "IdlePaused"
+		return
+	if animation_name == _current_animation and _animation_player.is_playing():
 		return
 	_animation_player.play(animation_name, 0.16)
 	_current_animation = animation_name
@@ -288,6 +293,12 @@ func _pick_animation(anim_name: String) -> String:
 		var lower = candidate.to_lower()
 		if lower == desired or lower.contains(desired):
 			return candidate
+	if desired == "idle":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("standing") or lower.contains("idle"):
+				return candidate
+		return ""
 	if desired == "run":
 		for candidate in animation_list:
 			var lower = candidate.to_lower()

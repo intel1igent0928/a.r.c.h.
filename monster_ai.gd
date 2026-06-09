@@ -27,7 +27,7 @@ const MONSTER_SOUND_SAMPLE_RATE = 22050
 @export var pack_alert_range := 70.0
 @export var stuck_repath_time := 1.15
 @export var direct_chase_range := 13.0
-@export var floor_clearance := 0.08
+@export var floor_clearance := 0.12
 
 var state = State.SLEEP
 var target_world = Vector3.ZERO
@@ -122,8 +122,8 @@ func _update_state():
 	if can_see or distance_to_player <= near_sense_range:
 		_remember_player()
 		state = State.CHASE
-		if can_see and distance_to_player <= direct_chase_range:
-			_direct_chase_timer = 0.45
+		if can_see:
+			_direct_chase_timer = 0.85
 		_broadcast_player_spotted()
 		if _repath_timer <= 0.0:
 			_repath_to_player()
@@ -236,7 +236,10 @@ func _can_see_player(distance_to_player: float) -> bool:
 	var query = PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [get_rid()]
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
-	return hit.is_empty() or hit.get("collider") == _player
+	if hit.is_empty():
+		return true
+	var collider = hit.get("collider")
+	return collider == _player or (collider is Node and _player.is_ancestor_of(collider))
 
 func _can_hear_player(distance_to_player: float) -> bool:
 	if distance_to_player > hearing_range:
@@ -494,7 +497,12 @@ func _play_animation(anim_name: String):
 	if not _animation_player:
 		return
 	var animation_name = _pick_animation(anim_name)
-	if animation_name.is_empty() or animation_name == _current_animation:
+	if animation_name.is_empty():
+		if anim_name == "Idle":
+			_animation_player.pause()
+			_current_animation = "IdlePaused"
+		return
+	if animation_name == _current_animation and _animation_player.is_playing():
 		return
 	_animation_player.play(animation_name, 0.18)
 	_current_animation = animation_name
@@ -508,6 +516,12 @@ func _pick_animation(anim_name: String) -> String:
 		var lower = candidate.to_lower()
 		if lower == desired or lower.ends_with("/" + desired) or lower.contains(desired):
 			return candidate
+	if desired == "idle":
+		for candidate in animation_list:
+			var lower = candidate.to_lower()
+			if lower.contains("idle") or lower.contains("standing"):
+				return candidate
+		return ""
 	if desired == "attack":
 		for candidate in animation_list:
 			var lower = candidate.to_lower()
