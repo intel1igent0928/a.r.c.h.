@@ -13,20 +13,20 @@ const KEY_MARKER = "K"
 const NOTE_MARKER = "N"
 
 @export var player_path: NodePath
-@export var maze_cells_x = 12
-@export var maze_cells_y = 10
+@export var maze_cells_x = 14
+@export var maze_cells_y = 12
 @export var cell_size = 6.4
 @export var min_wall_height = 7.5
 @export var max_wall_height = 11.5
-@export var branch_rate = 0.93
+@export var branch_rate = 0.90
 @export var maze_seed = 1842
-@export var extra_loops = 7
-@export var dead_end_spurs = 12
-@export var room_count = 10
+@export var extra_loops = 11
+@export var dead_end_spurs = 18
+@export var room_count = 5
 @export var landmark_count = 12
 @export var max_dead_end_length = 8
 @export var dead_end_removal_rate = 0.0
-@export var obstacle_chance = 0.18
+@export var obstacle_chance = 0.24
 @export var wall_uv_scale = Vector3(0.42, 0.42, 0.42)
 @export var floor_uv_scale = Vector3(0.34, 0.34, 0.34)
 
@@ -37,6 +37,7 @@ var world_origin = Vector3.ZERO
 
 var pickup_cells := {}
 var room_cells := {}
+var cave_cells := {}
 var landmark_cells: Array[Vector2i] = []
 var note_cells: Array[Vector2i] = []
 var monster_spawn_grid = Vector2i.ZERO
@@ -94,6 +95,7 @@ func get_monster_patrol_point(from_world: Vector3) -> Vector3:
 
 func _generate_maze():
 	room_cells.clear()
+	cave_cells.clear()
 	landmark_cells.clear()
 	note_cells.clear()
 	pickup_cells.clear()
@@ -150,6 +152,7 @@ func _generate_maze():
 	_set_cell(rows, start_grid, START)
 	_set_cell(rows, exit_grid, EXIT)
 	_carve_story_rooms(rows, rng)
+	_carve_cave_sector(rows, rng)
 	_add_dead_end_spurs(rows, rng, dead_end_spurs)
 	_prune_dead_ends(rows, max_dead_end_length, rng)
 	_ensure_connection(rows, start_grid, exit_grid)
@@ -205,10 +208,13 @@ func _carve_story_rooms(rows: Array[String], rng: RandomNumberGenerator):
 		if too_close:
 			continue
 
-		var half_w = rng.randi_range(1, 2)
-		var half_h = rng.randi_range(1, 2)
-		if half_w == 2 and half_h == 2 and rng.randf() < 0.55:
-			half_h = 1
+		var half_w = 1
+		var half_h = 1
+		if rng.randf() < 0.28:
+			if rng.randf() < 0.5:
+				half_w = 2
+			else:
+				half_h = 2
 		_carve_room(rows, center, half_w, half_h)
 		selected.append(center)
 		made += 1
@@ -232,6 +238,90 @@ func _carve_room(rows: Array[String], center: Vector2i, half_w: int, half_h: int
 				continue
 			_set_cell(rows, pos, ROOM)
 			room_cells[pos] = true
+
+func _carve_cave_sector(rows: Array[String], rng: RandomNumberGenerator):
+	var desired_center = Vector2i(int(rows[0].length() * 0.52), int(rows.size() * 0.50))
+	var center = _find_reachable_cell_near(rows, desired_center, {}, 4)
+	if center == start_grid:
+		center = desired_center
+
+	var radius_x = 5
+	var radius_y = 4
+	var min_x = clamp(center.x - radius_x, 2, rows[0].length() - 4)
+	var max_x = clamp(center.x + radius_x, 3, rows[0].length() - 3)
+	var min_y = clamp(center.y - radius_y, 2, rows.size() - 4)
+	var max_y = clamp(center.y + radius_y, 3, rows.size() - 3)
+
+	center = Vector2i(int((min_x + max_x) * 0.5), int((min_y + max_y) * 0.5))
+	var left_gate = Vector2i(min_x, center.y)
+	var right_gate = Vector2i(max_x, center.y + rng.randi_range(-1, 1))
+	var upper_gate = Vector2i(center.x + rng.randi_range(-1, 1), min_y)
+	var lower_gate = Vector2i(center.x + rng.randi_range(-1, 1), max_y)
+
+	_carve_cave_wander(rows, left_gate, center, rng, Rect2i(Vector2i(min_x, min_y), Vector2i(max_x - min_x + 1, max_y - min_y + 1)))
+	_carve_cave_wander(rows, center, right_gate, rng, Rect2i(Vector2i(min_x, min_y), Vector2i(max_x - min_x + 1, max_y - min_y + 1)))
+	_carve_cave_wander(rows, upper_gate, center + Vector2i(rng.randi_range(-2, 2), rng.randi_range(-1, 1)), rng, Rect2i(Vector2i(min_x, min_y), Vector2i(max_x - min_x + 1, max_y - min_y + 1)))
+	_carve_cave_wander(rows, lower_gate, center + Vector2i(rng.randi_range(-2, 2), rng.randi_range(-1, 1)), rng, Rect2i(Vector2i(min_x, min_y), Vector2i(max_x - min_x + 1, max_y - min_y + 1)))
+
+	var pockets = [
+		center,
+		center + Vector2i(-3, -2),
+		center + Vector2i(3, 2),
+		center + Vector2i(-2, 2),
+		center + Vector2i(2, -2),
+	]
+	for pocket in pockets:
+		_carve_cave_pocket(rows, pocket, rng)
+
+	_ensure_connection(rows, start_grid, center)
+	_ensure_connection(rows, center, exit_grid)
+
+func _carve_cave_wander(rows: Array[String], from_cell: Vector2i, to_cell: Vector2i, rng: RandomNumberGenerator, bounds: Rect2i):
+	var current = _clamp_to_rect(from_cell, bounds)
+	var target = _clamp_to_rect(to_cell, bounds)
+	var guard = bounds.size.x * bounds.size.y * 2
+	_carve_cave_cell(rows, current)
+
+	while current != target and guard > 0:
+		guard -= 1
+		var step = Vector2i.ZERO
+		if current.x != target.x and (current.y == target.y or rng.randf() < 0.58):
+			step.x = 1 if target.x > current.x else -1
+		elif current.y != target.y:
+			step.y = 1 if target.y > current.y else -1
+		current = _clamp_to_rect(current + step, bounds)
+		_carve_cave_cell(rows, current)
+
+		if rng.randf() < 0.38:
+			var side = Vector2i(-step.y, step.x)
+			if side == Vector2i.ZERO:
+				side = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP][rng.randi_range(0, 3)]
+			_carve_cave_cell(rows, _clamp_to_rect(current + side, bounds))
+
+func _carve_cave_pocket(rows: Array[String], center: Vector2i, rng: RandomNumberGenerator):
+	for y in range(-1, 2):
+		for x in range(-1, 2):
+			var pos = center + Vector2i(x, y)
+			if pos.x <= 1 or pos.y <= 1 or pos.x >= rows[0].length() - 2 or pos.y >= rows.size() - 2:
+				continue
+			if abs(x) + abs(y) > 2:
+				continue
+			if abs(x) == 1 and abs(y) == 1 and rng.randf() < 0.55:
+				continue
+			_carve_cave_cell(rows, pos)
+
+func _carve_cave_cell(rows: Array[String], cell: Vector2i):
+	if cell == start_grid or cell == exit_grid:
+		return
+	_set_cell(rows, cell, ROOM)
+	room_cells[cell] = true
+	cave_cells[cell] = true
+
+func _clamp_to_rect(cell: Vector2i, rect: Rect2i) -> Vector2i:
+	return Vector2i(
+		clamp(cell.x, rect.position.x, rect.position.x + rect.size.x - 1),
+		clamp(cell.y, rect.position.y, rect.position.y + rect.size.y - 1)
+	)
 
 func _add_dead_end_spurs(rows: Array[String], rng: RandomNumberGenerator, spur_count: int):
 	var attempts = spur_count * 12
@@ -428,6 +518,7 @@ func _build_geometry():
 
 	var wall_material = _create_stone_material("res://assets/wall_texture 1", Color(0.67, 0.66, 0.61), wall_uv_scale, true, 0.65)
 	var floor_material = _create_stone_material("res://assets/wall texture 2", Color(0.48, 0.46, 0.40), floor_uv_scale, false, 0.38)
+	var cave_material = _create_stone_material("res://assets/wall_texture 1", Color(0.38, 0.39, 0.36), wall_uv_scale * 0.85, false, 0.75)
 	var landmark_material = _create_emissive_material(Color(0.72, 0.61, 0.36), Color(0.95, 0.62, 0.18), 0.25)
 	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
 	detail_material.roughness = 1.0
@@ -465,6 +556,8 @@ func _build_geometry():
 				if room_cells.has(cell):
 					if _should_add_room_ruin(cell):
 						_add_room_ruin(cell, wall_material, height_rng)
+				if cave_cells.has(cell) and _should_add_cave_feature(cell):
+					_add_cave_feature(cell, cave_material, height_rng)
 
 				match marker:
 					LANDMARK:
@@ -621,6 +714,42 @@ func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumb
 	pillar.mesh = pillar_mesh
 	pillar.position = Vector3(rng.randf_range(-2.0, 2.0), pillar_mesh.height * 0.5, rng.randf_range(-2.0, 2.0))
 	root.add_child(pillar)
+
+func _should_add_cave_feature(cell: Vector2i) -> bool:
+	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
+		return false
+	return int(abs(cell.x * 47 + cell.y * 19 + maze_seed)) % 2 == 0
+
+func _add_cave_feature(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
+	var root = Node3D.new()
+	root.name = "CaveRock_%d_%d" % [grid_position.x, grid_position.y]
+	root.position = grid_to_world(grid_position, 0.0)
+	root.rotation.y = rng.randf_range(0.0, TAU)
+	_maze_root.add_child(root)
+
+	var ceiling = MeshInstance3D.new()
+	var ceiling_mesh = BoxMesh.new()
+	ceiling_mesh.size = Vector3(rng.randf_range(2.6, 4.8), rng.randf_range(0.22, 0.55), rng.randf_range(2.4, 4.4))
+	ceiling_mesh.material = material
+	ceiling.mesh = ceiling_mesh
+	ceiling.position = Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(5.4, 6.8), rng.randf_range(-0.8, 0.8))
+	ceiling.rotation = Vector3(rng.randf_range(-0.10, 0.10), rng.randf_range(0.0, TAU), rng.randf_range(-0.08, 0.08))
+	root.add_child(ceiling)
+
+	var rock_count = rng.randi_range(1, 3)
+	for i in range(rock_count):
+		var rock = MeshInstance3D.new()
+		var rock_mesh = CylinderMesh.new()
+		rock_mesh.top_radius = rng.randf_range(0.08, 0.18)
+		rock_mesh.bottom_radius = rng.randf_range(0.24, 0.46)
+		rock_mesh.height = rng.randf_range(0.8, 1.9)
+		rock_mesh.radial_segments = 6
+		rock_mesh.material = material
+		rock.mesh = rock_mesh
+		var side_offset = Vector3(rng.randf_range(-2.45, 2.45), rock_mesh.height * 0.5, rng.randf_range(-2.45, 2.45))
+		rock.position = side_offset
+		rock.rotation.z = rng.randf_range(-0.16, 0.16)
+		root.add_child(rock)
 
 func _should_add_floor_detail(cell: Vector2i) -> bool:
 	if cell.distance_to(start_grid) < 3.0 or cell.distance_to(exit_grid) < 2.0:
