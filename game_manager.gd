@@ -37,6 +37,7 @@ func _process(delta: float):
 	if _fear_overlay:
 		var target_alpha = clamp(threat * 0.22, 0.0, 0.46)
 		_fear_overlay.color.a = lerp(_fear_overlay.color.a, target_alpha, delta * 3.0)
+	_sync_mouse_mode()
 
 func _unhandled_input(event: InputEvent):
 	if event.is_action_pressed("ui_cancel"):
@@ -113,6 +114,8 @@ func scare_pulse(amount := 0.6):
 	threat += amount
 
 func _show_start():
+	game_started = false
+	game_over = false
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_menu_panel.visible = true
@@ -124,6 +127,8 @@ func _toggle_pause():
 	var paused = not get_tree().paused
 	get_tree().paused = paused
 	_pause_panel.visible = paused
+	if not paused:
+		_settings_panel.visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED)
 
 func _update_objective():
@@ -301,9 +306,11 @@ func _set_mouse_sensitivity(value: float):
 
 func _show_settings():
 	_settings_panel.visible = true
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 func _hide_settings():
 	_settings_panel.visible = false
+	_sync_mouse_mode()
 
 func _quit_game():
 	get_tree().quit()
@@ -316,3 +323,13 @@ func _ensure_input():
 		event.physical_keycode = KEY_ESCAPE
 		event.keycode = KEY_ESCAPE
 		InputMap.action_add_event("ui_cancel", event)
+
+func is_playing() -> bool:
+	return game_started and not game_over and not get_tree().paused and not _settings_panel.visible
+
+func _sync_mouse_mode():
+	if not game_started or game_over or get_tree().paused or _settings_panel.visible:
+		if Input.get_mouse_mode() != Input.MOUSE_MODE_VISIBLE:
+			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	elif Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)

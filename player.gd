@@ -86,7 +86,6 @@ var footstep_playback: AudioStreamGeneratorPlayback
 
 func _ready():
 	_ensure_default_input()
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if flashlight:
 		flashlight.visible = false
 	_build_footstep_audio()
@@ -94,6 +93,9 @@ func _ready():
 	_update_ui("Walk")
 
 func _unhandled_input(event):
+	if not _can_accept_play_input():
+		return
+
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		camera_pitch = clamp(camera_pitch - event.relative.y * mouse_sensitivity, deg_to_rad(-84.0), deg_to_rad(84.0))
@@ -101,8 +103,7 @@ func _unhandled_input(event):
 		third_person_pivot.rotation.x = camera_pitch
 
 	if event.is_action_pressed("toggle_mouse"):
-		var next_mode = Input.MOUSE_MODE_VISIBLE if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
-		Input.set_mouse_mode(next_mode)
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 	if event.is_action_pressed("toggle_flashlight"):
 		if has_flashlight:
@@ -122,6 +123,10 @@ func pickup_flashlight():
 		player_hands.show_flashlight(true)
 
 func _physics_process(delta):
+	if not _can_accept_play_input():
+		velocity = Vector3.ZERO
+		return
+
 	step_cooldown = max(step_cooldown - delta, 0.0)
 	var was_on_floor = is_on_floor()
 	var previous_y_velocity = velocity.y
@@ -462,7 +467,7 @@ func _ensure_default_input():
 	_ensure_key_action("crouch", KEY_CTRL)
 	_ensure_key_action("toggle_camera", KEY_V)
 	_ensure_key_action("toggle_flashlight", KEY_F)
-	_ensure_key_action("toggle_mouse", KEY_ESCAPE)
+	_ensure_key_action("toggle_mouse", KEY_TAB)
 
 func _ensure_key_action(action_name: String, keycode: Key):
 	if not InputMap.has_action(action_name):
@@ -476,3 +481,9 @@ func _ensure_key_action(action_name: String, keycode: Key):
 	key_event.physical_keycode = keycode
 	key_event.keycode = keycode
 	InputMap.action_add_event(action_name, key_event)
+
+func _can_accept_play_input() -> bool:
+	var manager = get_tree().root.find_child("GameManager", true, false)
+	if manager and manager.has_method("is_playing"):
+		return manager.is_playing()
+	return true
