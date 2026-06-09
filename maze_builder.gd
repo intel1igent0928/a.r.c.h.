@@ -571,7 +571,6 @@ func _build_geometry():
 	var wall_material = _create_stone_material("res://assets/wall_texture 1", Color(0.67, 0.66, 0.61), wall_uv_scale, true, 0.65)
 	var floor_material = _create_stone_material("res://assets/wall texture 2", Color(0.48, 0.46, 0.40), floor_uv_scale, false, 0.38)
 	var cave_material = _create_stone_material("res://assets/wall_texture 1", Color(0.38, 0.39, 0.36), wall_uv_scale * 0.85, false, 0.75)
-	var landmark_material = _create_emissive_material(Color(0.46, 0.43, 0.36), Color(0.12, 0.10, 0.07), 0.04)
 	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
 	detail_material.roughness = 1.0
 
@@ -610,10 +609,6 @@ func _build_geometry():
 						_add_room_ruin(cell, wall_material, height_rng)
 				if cave_cells.has(cell) and _should_add_cave_feature(cell):
 					_add_cave_feature(cell, cave_material, height_rng)
-
-				match marker:
-					LANDMARK:
-						_add_landmark(cell, landmark_material, height_rng)
 
 				if _should_add_floor_detail(cell):
 					_add_floor_detail(cell, detail_material, height_rng)
@@ -834,49 +829,60 @@ func _build_lights():
 	light_rng.seed = maze_seed + 1234
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
+	var path_light_count = 0
+	var max_path_lights = 4
 
-	_add_map_light("StartLight", start_grid, Color(0.86, 0.78, 0.62), 1.35, 10.5, false)
-	_add_map_light("ExitLight", exit_grid, Color(0.16, 0.82, 0.46), 2.3, 13.5, false)
+	_add_map_light("StartLight", start_grid, Color(0.74, 0.74, 0.66), 0.95, 8.5, false)
+	_add_map_light("ExitLight", exit_grid, Color(0.16, 0.82, 0.46), 1.7, 10.5, false)
 
 	for y in range(1, grid_h - 1):
 		for x in range(1, grid_w - 1):
 			var cell = Vector2i(x, y)
 			if not _is_walkable_cell(radar_grid, cell):
 				continue
-			if cell.distance_to(start_grid) < 3.0:
+			if cell.distance_to(start_grid) < 6.0:
 				continue
 			if pickup_cells.values().has(cell) or landmark_cells.has(cell):
 				continue
+			if path_light_count >= max_path_lights:
+				continue
 
 			var neighbors = _count_path_neighbors(radar_grid, cell)
-			var chance = 0.025
+			var chance = 0.012
 			if room_cells.has(cell):
-				chance = 0.015
+				chance = 0.0
 			elif neighbors == 1 or neighbors >= 3:
-				chance = 0.075
+				chance = 0.035
 
 			if light_rng.randf() < chance:
-				var energy = light_rng.randf_range(0.45, 0.85)
-				var range_value = light_rng.randf_range(7.2, 9.4)
-				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(0.82, 0.76, 0.62), energy, range_value, false)
+				var energy = light_rng.randf_range(0.32, 0.58)
+				var range_value = light_rng.randf_range(5.8, 7.4)
+				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(0.70, 0.70, 0.62), energy, range_value, false)
+				path_light_count += 1
 
 func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: float, range_value: float, casts_shadow: bool):
+	var mount_position = _get_light_mount_position(cell)
 	var lamp = OmniLight3D.new()
 	lamp.name = node_name
-	lamp.position = grid_to_world(cell, 3.1)
+	lamp.position = mount_position + Vector3(0.0, 2.55, 0.0)
 	lamp.light_color = color
 	lamp.light_energy = energy
 	lamp.omni_range = range_value
 	lamp.shadow_enabled = casts_shadow
 	_setup_flicker(lamp)
 	_maze_root.add_child(lamp)
-	_add_torch_prop(node_name + "Torch", cell, color)
+	_add_torch_prop(node_name + "Torch", cell, mount_position)
 
-func _add_torch_prop(node_name: String, cell: Vector2i, _flame_color: Color):
+func _add_torch_prop(node_name: String, cell: Vector2i, mount_position: Vector3):
 	var torch = Node3D.new()
 	torch.name = node_name
-	torch.position = grid_to_world(cell, 0.0)
-	torch.rotation.y = deg_to_rad(float(abs(cell.x * 37 + cell.y * 19 + maze_seed) % 360))
+	torch.position = mount_position
+	var center = grid_to_world(cell, 0.0)
+	var look_direction = center - mount_position
+	if look_direction.length() > 0.01:
+		torch.rotation.y = atan2(-look_direction.x, -look_direction.z)
+	else:
+		torch.rotation.y = deg_to_rad(float(abs(cell.x * 37 + cell.y * 19 + maze_seed) % 360))
 	torch.set_script(PROP_MODEL_SCRIPT)
 	torch.set("model_path", TORCH_MODEL_PATH)
 	torch.set("target_height", 1.55)
@@ -884,6 +890,35 @@ func _add_torch_prop(node_name: String, cell: Vector2i, _flame_color: Color):
 	torch.set("ground_y_offset", 0.0)
 
 	_maze_root.add_child(torch)
+
+func _get_light_mount_position(cell: Vector2i) -> Vector3:
+	var offset = Vector3.ZERO
+	var side = cell_size * 0.38
+	var walls: Array[Vector2i] = []
+	for dir in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		if not _is_walkable_cell(radar_grid, cell + dir):
+			walls.append(dir)
+
+	var x_dir = 0
+	var z_dir = 0
+	for wall_dir in walls:
+		if wall_dir == Vector2i.LEFT:
+			x_dir = -1
+		elif wall_dir == Vector2i.RIGHT:
+			x_dir = 1
+		elif wall_dir == Vector2i.UP:
+			z_dir = -1
+		elif wall_dir == Vector2i.DOWN:
+			z_dir = 1
+
+	if x_dir == 0:
+		x_dir = -1 if int(abs(cell.x * 31 + maze_seed)) % 2 == 0 else 1
+	if z_dir == 0:
+		z_dir = -1 if int(abs(cell.y * 29 + maze_seed)) % 2 == 0 else 1
+
+	offset.x = float(x_dir) * side
+	offset.z = float(z_dir) * side
+	return grid_to_world(cell, 0.0) + offset
 
 func _setup_flicker(light: Light3D):
 	var flicker_script = load("res://flickering_light.gd")
