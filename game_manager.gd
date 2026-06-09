@@ -20,7 +20,7 @@ var _settings_panel: Panel
 var _objective_label: Label
 var _note_label: Label
 var _fear_overlay: ColorRect
-var _monster: Node
+var _monsters: Array[Node] = []
 var _player: Node
 
 func _ready():
@@ -28,7 +28,7 @@ func _ready():
 	_ensure_input()
 	_canvas = get_tree().root.find_child("CanvasLayer", true, false) as CanvasLayer
 	_player = get_tree().root.find_child("Player", true, false)
-	_monster = get_tree().root.find_child("Monster", true, false)
+	_refresh_monsters()
 	_build_ui()
 	call_deferred("_show_start")
 
@@ -56,8 +56,8 @@ func start_game():
 	_end_panel.visible = false
 	_settings_panel.visible = false
 	_update_objective()
-	if _monster and _monster.has_method("set_active"):
-		_monster.set_active(true)
+	_refresh_monsters()
+	_set_monsters_active(true)
 
 func register_pickup(item_name: String, points: int, dangerous: bool, description: String):
 	var lower = item_name.to_lower()
@@ -76,8 +76,7 @@ func register_pickup(item_name: String, points: int, dangerous: bool, descriptio
 
 	if dangerous:
 		threat += 0.85
-		if _monster and _monster.has_method("alert_to_player"):
-			_monster.alert_to_player()
+		_alert_monsters()
 
 	_update_objective()
 
@@ -92,6 +91,7 @@ func try_exit() -> bool:
 
 	_show_note("The gate is locked. Find the key inside the maze.")
 	threat += 0.35
+	_alert_monsters()
 	return false
 
 func win_game():
@@ -115,6 +115,27 @@ func kill_player(reason := "The monster caught you."):
 
 func scare_pulse(amount := 0.6):
 	threat += amount
+
+func _refresh_monsters():
+	_monsters.clear()
+	for node in get_tree().get_nodes_in_group("monsters"):
+		if node is Node:
+			_monsters.append(node)
+	if _monsters.is_empty():
+		var single = get_tree().root.find_child("Monster", true, false)
+		if single:
+			_monsters.append(single)
+
+func _set_monsters_active(enabled: bool):
+	for monster in _monsters:
+		if monster and monster.has_method("set_active"):
+			monster.set_active(enabled)
+
+func _alert_monsters():
+	_refresh_monsters()
+	for monster in _monsters:
+		if monster and monster.has_method("alert_to_player"):
+			monster.alert_to_player()
 
 func _show_start():
 	game_started = false

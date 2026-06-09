@@ -814,7 +814,38 @@ func _place_pickups():
 	_move_node_to_grid("/root/Main/NotePickup1", note_cells[0] if note_cells.size() > 0 else start_grid + Vector2i(2, 2), 0.18)
 	_move_node_to_grid("/root/Main/NotePickup2", note_cells[1] if note_cells.size() > 1 else start_grid + Vector2i(4, 2), 0.18)
 	_move_node_to_grid("/root/Main/NotePickup3", note_cells[2] if note_cells.size() > 2 else exit_grid + Vector2i(-4, -2), 0.18)
-	_move_node_to_grid("/root/Main/Monster", monster_spawn_grid, 0.0)
+	_place_monsters()
+
+func _place_monsters():
+	var distances = _get_distance_map(radar_grid, start_grid)
+	var route_length = int(distances.get(exit_grid, radar_grid.size() + radar_grid[0].length()))
+	var rng = RandomNumberGenerator.new()
+	rng.seed = maze_seed + 917
+	var reserved := {}
+	var first_target = _choose_cell_by_route_distance(radar_grid, distances, int(route_length * 0.38), int(route_length * 0.58), reserved, rng)
+	if first_target != Vector2i(-1, -1):
+		reserved[first_target] = true
+	var second_target = _choose_cell_by_route_distance(radar_grid, distances, int(route_length * 0.55), int(route_length * 0.78), reserved, rng)
+	if second_target != Vector2i(-1, -1):
+		reserved[second_target] = true
+	var monster_targets: Array[Vector2i] = [first_target, second_target, monster_spawn_grid]
+	var monster_paths = [
+		"/root/Main/Monster",
+		"/root/Main/MonsterHie",
+		"/root/Main/MonsterChest",
+	]
+
+	for i in range(monster_paths.size()):
+		var cell = monster_targets[i]
+		if cell == Vector2i(-1, -1) or reserved.has(cell) and i > 1 or not _is_walkable_cell(radar_grid, cell):
+			var t = float(i + 2) / float(monster_paths.size() + 2)
+			var fallback = Vector2i(
+				int(round(lerp(float(start_grid.x), float(exit_grid.x), t))),
+				int(round(lerp(float(start_grid.y), float(exit_grid.y), t)))
+			)
+			cell = _find_reachable_cell_near(radar_grid, fallback, reserved, int(route_length * 0.28))
+		reserved[cell] = true
+		_move_node_to_grid(monster_paths[i], cell, 0.0)
 
 func _move_node_to_grid(path, grid_position: Vector2i, y: float):
 	var node = get_node_or_null(path)

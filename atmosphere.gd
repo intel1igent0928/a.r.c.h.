@@ -8,13 +8,13 @@ var _phase := 0.0
 var _noise_seed := 0.0
 var _manager: Node
 var _player: Node3D
-var _monster: Node3D
+var _monsters: Array[Node3D] = []
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_manager = get_tree().root.find_child("GameManager", true, false)
 	_player = get_tree().root.find_child("Player", true, false) as Node3D
-	_monster = get_tree().root.find_child("Monster", true, false) as Node3D
+	_refresh_monsters()
 	_build_ambient()
 
 func _process(delta: float):
@@ -52,7 +52,21 @@ func _next_ambient_frame() -> Vector2:
 	return Vector2(sample, sample)
 
 func _get_monster_pressure() -> float:
-	if not _player or not _monster or not _monster.visible:
+	if not _player:
 		return 0.0
-	var distance = _player.global_position.distance_to(_monster.global_position)
-	return clamp(1.0 - distance / 28.0, 0.0, 1.0)
+	if _monsters.is_empty():
+		_refresh_monsters()
+	var pressure := 0.0
+	for monster in _monsters:
+		if not monster or not monster.visible:
+			continue
+		var distance = _player.global_position.distance_to(monster.global_position)
+		pressure = max(pressure, clamp(1.0 - distance / 28.0, 0.0, 1.0))
+	return pressure
+
+func _refresh_monsters():
+	_monsters.clear()
+	for node in get_tree().get_nodes_in_group("monsters"):
+		var monster = node as Node3D
+		if monster:
+			_monsters.append(monster)

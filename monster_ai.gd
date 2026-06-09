@@ -2,19 +2,25 @@ extends CharacterBody3D
 
 enum State { SLEEP, PATROL, INVESTIGATE, CHASE }
 
-const PATROL_SPEED = 2.15
-const CHASE_SPEED = 5.25
 const TURN_SPEED = 7.0
 const GRAVITY = 24.0
-const DETECT_RANGE = 22.0
-const CATCH_RANGE = 1.35
-const LOSE_RANGE = 34.0
 const MONSTER_SOUND_SAMPLE_RATE = 22050
 
 @export var maze_builder_path: NodePath
 @export var player_path: NodePath
-@export_file("*.gltf", "*.glb", "*.tscn") var monster_model_path := "res://assets/monsters/demon/Demon.gltf"
+@export_file("*.gltf", "*.glb", "*.tscn") var monster_model_path := "res://assets/monsters/stalker/monster.glb"
 @export var imported_model_height := 2.35
+@export var patrol_speed := 2.35
+@export var investigate_speed := 3.2
+@export var chase_speed := 6.15
+@export var detect_range := 30.0
+@export var hearing_range := 17.5
+@export var near_sense_range := 8.5
+@export var catch_range := 1.55
+@export var lose_range := 42.0
+@export var memory_time := 8.0
+@export var scare_power := 1.0
+@export var voice_pitch := 1.0
 
 var state = State.SLEEP
 var target_world = Vector3.ZERO
@@ -26,6 +32,9 @@ var _body_root: Node3D
 var _pulse := 0.0
 var _repath_timer := 0.0
 var _growl_timer := 0.0
+var _memory_timer := 0.0
+var _close_scare_cooldown := 0.0
+var _last_known_player_position := Vector3.ZERO
 var _animation_player: AnimationPlayer
 var _current_animation := ""
 var _imported_model_active := false
@@ -36,6 +45,7 @@ var _monster_audio_pulse := 0.0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	add_to_group("monsters")
 	_maze_builder = get_node_or_null(maze_builder_path)
 	_player = get_node_or_null(player_path) as Node3D
 	_build_creature()
@@ -62,6 +72,8 @@ func _physics_process(delta: float):
 	_pulse += delta
 	_repath_timer = max(_repath_timer - delta, 0.0)
 	_growl_timer = max(_growl_timer - delta, 0.0)
+	_memory_timer = max(_memory_timer - delta, 0.0)
+	_close_scare_cooldown = max(_close_scare_cooldown - delta, 0.0)
 	_update_state()
 	_follow_path(delta)
 	_update_visuals(delta)
@@ -69,22 +81,43 @@ func _physics_process(delta: float):
 
 func _update_state():
 	var distance_to_player = global_position.distance_to(_player.global_position)
-	if distance_to_player <= CATCH_RANGE:
+	if distance_to_player <= catch_range:
 		_play_animation("Punch")
 		var manager = get_tree().root.find_child("GameManager", true, false)
 		if manager and manager.has_method("kill_player"):
 			manager.kill_player("It found you in the maze.")
 		return
 
-	if _can_see_player(distance_to_player):
+	var can_see = _can_see_player(distance_to_player)
+	var can_hear = _can_hear_player(distance_to_player)
+	if can_see or distance_to_player <= near_sense_range:
+		_remember_player()
 		state = State.CHASE
 		if _repath_timer <= 0.0:
 			_repath_to_player()
-			_repath_timer = 0.35
-		_scare_player(0.012)
-	elif state == State.CHASE and distance_to_player > LOSE_RANGE:
-		state = State.PATROL
-		_choose_patrol_target()
+			_repath_timer = 0.22
+		_scare_player(0.02 * scare_power)
+		if distance_to_player < 6.0 and _close_scare_cooldown <= 0.0:
+			_scare_player(0.45 * scare_power)
+			_close_scare_cooldown = 2.5
+	elif can_hear:
+		_remember_player()
+		state = State.INVESTIGATE
+		if _repath_timer <= 0.0:
+			_repath_to_position(_last_known_player_position)
+			_repath_timer = 0.45
+		_scare_player(0.008 * scare_power)
+	elif state == State.CHASE and distance_to_player <= lose_range and _memory_timer > 0.0:
+		if _repath_timer <= 0.0:
+			_repath_to_position(_last_known_player_position)
+			_repath_timer = 0.55
+		_scare_player(0.01 * scare_power)
+	elif state == State.CHASE or state == State.INVESTIGATE:
+		if _memory_timer > 0.0 and (path.is_empty() or path_index >= path.size()):
+			_repath_to_position(_last_known_player_position)
+		elif _memory_timer <= 0.0 or distance_to_player > lose_range:
+			state = State.PATROL
+			_choose_patrol_target()
 	elif state == State.PATROL and (path.is_empty() or path_index >= path.size()):
 		_choose_patrol_target()
 
@@ -99,7 +132,7 @@ func _follow_path(delta: float):
 		if flat_to_target.length() < 0.35:
 			path_index += 1
 		else:
-			var speed = CHASE_SPEED if state == State.CHASE else PATROL_SPEED
+			var speed = _get_move_speed()
 			var direction = flat_to_target.normalized()
 			velocity.x = move_toward(velocity.x, direction.x * speed, 16.0 * delta)
 			velocity.z = move_toward(velocity.z, direction.z * speed, 16.0 * delta)
@@ -114,9 +147,16 @@ func _follow_path(delta: float):
 	move_and_slide()
 
 func _repath_to_player():
-	if not _maze_builder.has_method("find_path_world"):
-		return
-	path = _maze_builder.find_path_world(global_position, _player.global_position)
+	_remember_player()
+	_repath_to_position(_player.global_position)
+
+func _repath_to_position(world_position: Vector3):
+	if _maze_builder.has_method("find_path_world"):
+		path = _maze_builder.find_path_world(global_position, world_position)
+		if path.is_empty():
+			path = [world_position]
+	else:
+		path = [world_position]
 	path_index = 0
 
 func _choose_patrol_target():
@@ -127,7 +167,7 @@ func _choose_patrol_target():
 	path_index = 0
 
 func _can_see_player(distance_to_player: float) -> bool:
-	if distance_to_player > DETECT_RANGE:
+	if distance_to_player > detect_range:
 		return false
 	var from = global_position + Vector3.UP * 1.2
 	var to = _player.global_position + Vector3.UP * 0.75
@@ -135,6 +175,27 @@ func _can_see_player(distance_to_player: float) -> bool:
 	query.exclude = [get_rid()]
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	return hit.is_empty() or hit.get("collider") == _player
+
+func _can_hear_player(distance_to_player: float) -> bool:
+	if distance_to_player > hearing_range:
+		return false
+	var player_body = _player as CharacterBody3D
+	var player_speed = 0.0
+	if player_body:
+		player_speed = Vector2(player_body.velocity.x, player_body.velocity.z).length()
+	var loud_radius = lerp(near_sense_range, hearing_range, clamp(player_speed / 6.0, 0.0, 1.0))
+	return distance_to_player <= loud_radius
+
+func _remember_player():
+	_last_known_player_position = _player.global_position
+	_memory_timer = memory_time
+
+func _get_move_speed() -> float:
+	if state == State.CHASE:
+		return chase_speed
+	if state == State.INVESTIGATE:
+		return investigate_speed
+	return patrol_speed
 
 func _scare_player(amount: float):
 	var manager = get_tree().root.find_child("GameManager", true, false)
@@ -145,6 +206,8 @@ func _update_visuals(delta: float):
 	if not _body_root:
 		return
 	if _imported_model_active:
+		var intensity = 1.0 if state == State.CHASE else 0.45
+		_body_root.rotation.z = lerp(_body_root.rotation.z, sin(_pulse * 8.0) * 0.035 * intensity, delta * 6.0)
 		return
 	var intensity = 1.0 if state == State.CHASE else 0.45
 	_body_root.position.y = 0.08 + sin(_pulse * (8.0 if state == State.CHASE else 3.5)) * 0.08 * intensity
@@ -286,12 +349,13 @@ func _find_animation_player(root: Node) -> AnimationPlayer:
 func _configure_imported_animations():
 	if not _animation_player:
 		return
+	var animation_list = _animation_player.get_animation_list()
 	for candidate in _animation_player.get_animation_list():
 		var animation = _animation_player.get_animation(candidate)
 		if not animation:
 			continue
 		var lower = candidate.to_lower()
-		if lower.contains("idle") or lower.contains("walk") or lower.contains("run"):
+		if animation_list.size() == 1 or lower.contains("idle") or lower.contains("walk") or lower.contains("run") or lower.contains("take"):
 			animation.loop_mode = Animation.LOOP_LINEAR
 		else:
 			animation.loop_mode = Animation.LOOP_NONE
@@ -313,6 +377,9 @@ func _pick_animation(anim_name: String) -> String:
 		var lower = candidate.to_lower()
 		if lower == desired or lower.ends_with("/" + desired) or lower.contains(desired):
 			return candidate
+	var animation_list = _animation_player.get_animation_list()
+	if not animation_list.is_empty():
+		return animation_list[0]
 	return ""
 
 func _build_monster_audio():
@@ -344,7 +411,7 @@ func _next_monster_audio_frame() -> Vector2:
 		var distance_pressure = clamp(1.0 - global_position.distance_to(_player.global_position) / 26.0, 0.0, 1.0)
 		intensity = max(intensity, distance_pressure)
 
-	_monster_audio_phase += TAU * lerp(34.0, 58.0, intensity) / float(MONSTER_SOUND_SAMPLE_RATE)
+	_monster_audio_phase += TAU * lerp(34.0, 58.0, intensity) * voice_pitch / float(MONSTER_SOUND_SAMPLE_RATE)
 	if _monster_audio_phase > TAU:
 		_monster_audio_phase -= TAU
 	_monster_audio_pulse += 1.0 / float(MONSTER_SOUND_SAMPLE_RATE)

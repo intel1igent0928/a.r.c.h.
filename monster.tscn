@@ -10,6 +10,7 @@ height = 2.05
 script = ExtResource("1_monster")
 maze_builder_path = NodePath("../MazeBuilder")
 player_path = NodePath("../Player")
+monster_model_path = "res://assets/monsters/stalker/monster.glb"
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 position = Vector3(0, 1.02, 0)

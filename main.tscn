@@ -421,6 +421,39 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 5)
 
 [node name="Monster" parent="." instance=ExtResource("16_monster")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.2, 5)
+monster_model_path = "res://assets/monsters/stalker/monster.glb"
+imported_model_height = 2.55
+patrol_speed = 2.45
+investigate_speed = 3.35
+chase_speed = 6.1
+detect_range = 31.0
+hearing_range = 18.0
+voice_pitch = 0.85
+
+[node name="MonsterHie" parent="." instance=ExtResource("16_monster")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0.2, 7)
+monster_model_path = "res://assets/monsters/hie/hie_monster_n1.glb"
+imported_model_height = 2.7
+patrol_speed = 2.75
+investigate_speed = 3.75
+chase_speed = 6.55
+detect_range = 34.0
+hearing_range = 20.0
+scare_power = 1.25
+voice_pitch = 1.18
+
+[node name="MonsterChest" parent="." instance=ExtResource("16_monster")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.2, 9)
+monster_model_path = "res://assets/monsters/chest/chest_monster.glb"
+imported_model_height = 1.55
+patrol_speed = 1.75
+investigate_speed = 2.55
+chase_speed = 4.85
+detect_range = 24.0
+hearing_range = 14.0
+near_sense_range = 7.0
+scare_power = 1.45
+voice_pitch = 0.62
 
 [node name="WindLeft" type="ColorRect" parent="CanvasLayer"]
 modulate = Color(1, 1, 1, 0)
