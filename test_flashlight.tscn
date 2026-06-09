@@ -1,29 +1,22 @@
-[gd_scene format=3 uid="uid://df4v5w8q1p2j"]
+[gd_scene load_steps=4 format=3 uid="uid://df4v5w8q1p2j"]
 
 [ext_resource type="Script" path="res://flashlight_pickup.gd" id="1_flash"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_flash"]
-albedo_color = Color(0.2, 0.2, 0.2, 1)
-metallic = 0.8
-roughness = 0.4
-
-[sub_resource type="CylinderMesh" id="CylinderMesh_flash"]
-material = SubResource("StandardMaterial3D_flash")
-top_radius = 0.04
-bottom_radius = 0.04
-height = 0.25
+[ext_resource type="Script" path="res://prop_model.gd" id="2_prop"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_flash"]
-size = Vector3(0.3, 0.4, 0.3)
+size = Vector3(0.5, 0.35, 0.5)
 
 [node name="TestFlashlight" type="StaticBody3D"]
 collision_layer = 1
 collision_mask = 1
 script = ExtResource("1_flash")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -4.37114e-08, 1, 0, -1, -4.37114e-08, 0, 0, 0)
-mesh = SubResource("CylinderMesh_flash")
+[node name="FlashlightModel" type="Node3D" parent="."]
+script = ExtResource("2_prop")
+model_path = "res://assets/props/flashlight/old_flashlight.glb"
+target_height = 0.22
+yaw_degrees = 90.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.16, 0)
 shape = SubResource("BoxShape3D_flash")

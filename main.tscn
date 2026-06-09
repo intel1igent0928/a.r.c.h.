@@ -1,4 +1,4 @@
-[gd_scene load_steps=42 format=3 uid="uid://kvt561sck0y0"]
+[gd_scene load_steps=43 format=3 uid="uid://kvt561sck0y0"]
 
 [ext_resource type="Script" path="res://player.gd" id="1_player"]
 [ext_resource type="Script" path="res://interaction_system.gd" id="3_interact"]
@@ -15,6 +15,7 @@
 [ext_resource type="PackedScene" path="res://monster.tscn" id="16_monster"]
 [ext_resource type="Script" path="res://atmosphere.gd" id="17_atmosphere"]
 [ext_resource type="PackedScene" path="res://follower.tscn" id="18_follower"]
+[ext_resource type="Script" path="res://prop_model.gd" id="19_prop"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.045, 0.055, 0.07, 1)
@@ -371,6 +372,16 @@ light_color = Color(1, 0.92, 0.78, 1)
 light_energy = 6.8
 spot_range = 21.0
 spot_angle = 38.0
+
+[node name="FlashlightModel" type="Node3D" parent="Player/CameraPivot/Camera3D"]
+transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 0.22, -0.24, -0.58)
+visible = false
+script = ExtResource("19_prop")
+model_path = "res://assets/props/flashlight/old_flashlight.glb"
+target_height = 0.16
+yaw_degrees = 90.0
+pitch_degrees = -8.0
+cast_shadows = false
 
 [node name="ThirdPersonPivot" type="Node3D" parent="Player"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0)

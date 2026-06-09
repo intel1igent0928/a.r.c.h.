@@ -11,6 +11,8 @@ const BATTERY_MARKER = "B"
 const ARTIFACT_MARKER = "A"
 const KEY_MARKER = "K"
 const NOTE_MARKER = "N"
+const TORCH_MODEL_PATH = "res://assets/props/torch/burning_torch.glb"
+const PROP_MODEL_SCRIPT = preload("res://prop_model.gd")
 
 @export var player_path: NodePath
 @export var maze_cells_x = 14
@@ -823,6 +825,32 @@ func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: flo
 	lamp.shadow_enabled = casts_shadow
 	_setup_flicker(lamp)
 	_maze_root.add_child(lamp)
+	_add_torch_prop(node_name + "Torch", cell, color)
+
+func _add_torch_prop(node_name: String, cell: Vector2i, flame_color: Color):
+	var torch = Node3D.new()
+	torch.name = node_name
+	torch.position = grid_to_world(cell, 0.0)
+	torch.rotation.y = deg_to_rad(float(abs(cell.x * 37 + cell.y * 19 + maze_seed) % 360))
+	torch.set_script(PROP_MODEL_SCRIPT)
+	torch.set("model_path", TORCH_MODEL_PATH)
+	torch.set("target_height", 1.55)
+	torch.set("yaw_degrees", 0.0)
+	torch.set("ground_y_offset", 0.0)
+
+	var flame = MeshInstance3D.new()
+	flame.name = "FlameGlow"
+	var flame_mesh = SphereMesh.new()
+	flame_mesh.radius = 0.12
+	flame_mesh.height = 0.32
+	flame_mesh.radial_segments = 12
+	flame_mesh.rings = 6
+	flame_mesh.material = _create_emissive_material(flame_color, flame_color, 2.4)
+	flame.mesh = flame_mesh
+	flame.position = Vector3(0.0, 1.44, 0.0)
+	torch.add_child(flame)
+
+	_maze_root.add_child(torch)
 
 func _setup_flicker(light: Light3D):
 	var flicker_script = load("res://flickering_light.gd")
