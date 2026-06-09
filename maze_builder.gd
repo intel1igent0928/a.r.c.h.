@@ -532,7 +532,7 @@ func _build_geometry():
 	var wall_material = _create_stone_material("res://assets/wall_texture 1", Color(0.67, 0.66, 0.61), wall_uv_scale, true, 0.65)
 	var floor_material = _create_stone_material("res://assets/wall texture 2", Color(0.48, 0.46, 0.40), floor_uv_scale, false, 0.38)
 	var cave_material = _create_stone_material("res://assets/wall_texture 1", Color(0.38, 0.39, 0.36), wall_uv_scale * 0.85, false, 0.75)
-	var landmark_material = _create_emissive_material(Color(0.72, 0.61, 0.36), Color(0.95, 0.62, 0.18), 0.25)
+	var landmark_material = _create_emissive_material(Color(0.46, 0.43, 0.36), Color(0.12, 0.10, 0.07), 0.04)
 	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
 	detail_material.roughness = 1.0
 
@@ -688,9 +688,9 @@ func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumbe
 	var light = OmniLight3D.new()
 	light.name = "LandmarkLight"
 	light.position = Vector3(0.0, 2.9, 0.0)
-	light.light_color = Color(1.0, 0.62, 0.28)
-	light.light_energy = 1.15
-	light.omni_range = 7.5
+	light.light_color = Color(0.62, 0.66, 0.58)
+	light.light_energy = 0.34
+	light.omni_range = 4.8
 	light.shadow_enabled = false
 	_setup_flicker(light)
 	root.add_child(light)
@@ -796,13 +796,8 @@ func _build_lights():
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
 
-	_add_map_light("StartLight", start_grid, Color(1.0, 0.70, 0.40), 1.8, 12.0, false)
+	_add_map_light("StartLight", start_grid, Color(0.86, 0.78, 0.62), 1.35, 10.5, false)
 	_add_map_light("ExitLight", exit_grid, Color(0.16, 0.82, 0.46), 2.3, 13.5, false)
-
-	for cell in pickup_cells.values():
-		_add_map_light("PickupLight_%d_%d" % [cell.x, cell.y], cell, Color(0.90, 0.70, 0.30), 0.85, 6.8, false)
-	for cell in note_cells:
-		_add_map_light("NoteLight_%d_%d" % [cell.x, cell.y], cell, Color(0.88, 0.50, 0.22), 0.55, 5.4, false)
 
 	for y in range(1, grid_h - 1):
 		for x in range(1, grid_w - 1):
@@ -815,16 +810,16 @@ func _build_lights():
 				continue
 
 			var neighbors = _count_path_neighbors(radar_grid, cell)
-			var chance = 0.10
+			var chance = 0.025
 			if room_cells.has(cell):
-				chance = 0.05
+				chance = 0.015
 			elif neighbors == 1 or neighbors >= 3:
-				chance = 0.22
+				chance = 0.075
 
 			if light_rng.randf() < chance:
-				var energy = light_rng.randf_range(0.65, 1.25)
-				var range_value = light_rng.randf_range(8.5, 11.5)
-				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(1.0, 0.73, 0.46), energy, range_value, false)
+				var energy = light_rng.randf_range(0.45, 0.85)
+				var range_value = light_rng.randf_range(7.2, 9.4)
+				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(0.82, 0.76, 0.62), energy, range_value, false)
 
 func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: float, range_value: float, casts_shadow: bool):
 	var lamp = OmniLight3D.new()
@@ -838,7 +833,7 @@ func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: flo
 	_maze_root.add_child(lamp)
 	_add_torch_prop(node_name + "Torch", cell, color)
 
-func _add_torch_prop(node_name: String, cell: Vector2i, flame_color: Color):
+func _add_torch_prop(node_name: String, cell: Vector2i, _flame_color: Color):
 	var torch = Node3D.new()
 	torch.name = node_name
 	torch.position = grid_to_world(cell, 0.0)
@@ -848,18 +843,6 @@ func _add_torch_prop(node_name: String, cell: Vector2i, flame_color: Color):
 	torch.set("target_height", 1.55)
 	torch.set("yaw_degrees", 0.0)
 	torch.set("ground_y_offset", 0.0)
-
-	var flame = MeshInstance3D.new()
-	flame.name = "FlameGlow"
-	var flame_mesh = SphereMesh.new()
-	flame_mesh.radius = 0.12
-	flame_mesh.height = 0.32
-	flame_mesh.radial_segments = 12
-	flame_mesh.rings = 6
-	flame_mesh.material = _create_emissive_material(flame_color, flame_color, 2.4)
-	flame.mesh = flame_mesh
-	flame.position = Vector3(0.0, 1.44, 0.0)
-	torch.add_child(flame)
 
 	_maze_root.add_child(torch)
 

@@ -76,7 +76,6 @@ var footstep_playback: AudioStreamGeneratorPlayback
 @onready var third_person_pivot: Node3D = $ThirdPersonPivot
 @onready var third_person_camera: Camera3D = $ThirdPersonPivot/ThirdPersonCamera
 @onready var flashlight: SpotLight3D = $CameraPivot/Camera3D/Flashlight
-@onready var flashlight_model: Node3D = get_node_or_null("CameraPivot/Camera3D/FlashlightModel")
 @onready var player_hands = get_node_or_null("CameraPivot/Camera3D/PlayerHands")
 @onready var mixamo_body = get_node_or_null("MixamoPlayerBody")
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
@@ -89,8 +88,8 @@ func _ready():
 	_ensure_default_input()
 	if flashlight:
 		flashlight.visible = false
-	if flashlight_model:
-		flashlight_model.visible = false
+	if player_hands and player_hands.has_method("show_flashlight"):
+		player_hands.show_flashlight(false)
 	_build_footstep_audio()
 	_set_camera_mode(false)
 	_update_ui("Walk")
@@ -104,6 +103,8 @@ func _input(event):
 		camera_pitch = clamp(camera_pitch - event.relative.y * mouse_sensitivity, deg_to_rad(-84.0), deg_to_rad(84.0))
 		camera_pivot.rotation.x = camera_pitch
 		third_person_pivot.rotation.x = camera_pitch
+		if player_hands and player_hands.has_method("add_look_impulse"):
+			player_hands.add_look_impulse(event.relative)
 
 	if event.is_action_pressed("toggle_mouse"):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -126,8 +127,8 @@ func pickup_flashlight():
 func _set_flashlight_visible(is_visible: bool):
 	if flashlight:
 		flashlight.visible = is_visible
-	if flashlight_model:
-		flashlight_model.visible = is_visible
+	if player_hands and player_hands.has_method("set_light_enabled"):
+		player_hands.set_light_enabled(is_visible)
 
 func _physics_process(delta):
 	if not _can_accept_play_input():

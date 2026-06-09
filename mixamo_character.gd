@@ -36,6 +36,7 @@ var has_base_model_position = false
 @export var normalize_model_height = true
 @export var target_model_height = 1.68
 @export var foot_offset_from_origin = -0.95
+@export var floor_clearance = 0.08
 @export var crouch_visual_lift = 0.58
 @export var slide_visual_lift = 0.72
 
@@ -53,6 +54,7 @@ func _ready():
 func _process(delta: float):
 	state_lock_timer = max(state_lock_timer - delta, 0.0)
 	_update_visual_lift(delta)
+	_keep_model_above_floor()
 
 func update_locomotion(is_running: bool, is_crouching: bool, is_sliding: bool, is_moving: bool, is_on_ground: bool, y_velocity: float):
 	if state_lock_timer > 0.0 and current_state in ["Jump", "Land", "Slide"]:
@@ -332,7 +334,7 @@ func _normalize_model_size():
 	if not bounds.has("valid"):
 		return
 
-	var target_foot_y = global_position.y + foot_offset_from_origin
+	var target_foot_y = global_position.y + foot_offset_from_origin + floor_clearance
 	var foot_offset = bounds["min"].y - target_foot_y
 	model_root.global_position.y -= foot_offset
 	base_model_position = model_root.position
@@ -351,6 +353,16 @@ func _update_visual_lift(delta: float):
 
 	model_root.position = model_root.position.lerp(target_position, delta * 18.0)
 
+func _keep_model_above_floor():
+	var bounds = _get_visual_bounds(model_root)
+	if not bounds.has("valid"):
+		return
+
+	var min_allowed_y = global_position.y + foot_offset_from_origin + floor_clearance
+	if bounds["min"].y < min_allowed_y:
+		model_root.global_position.y += min_allowed_y - bounds["min"].y
+		base_model_position = model_root.position
+
 func _get_visual_bounds(node: Node) -> Dictionary:
 	var has_bounds = false
 	var min_point = Vector3(1.0e20, 1.0e20, 1.0e20)
@@ -359,7 +371,7 @@ func _get_visual_bounds(node: Node) -> Dictionary:
 
 	while not stack.is_empty():
 		var current = stack.pop_back()
-		if current is VisualInstance3D:
+		if current is GeometryInstance3D:
 			var aabb = current.get_aabb()
 			for x in [aabb.position.x, aabb.position.x + aabb.size.x]:
 				for y in [aabb.position.y, aabb.position.y + aabb.size.y]:
