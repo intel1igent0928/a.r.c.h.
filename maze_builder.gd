@@ -428,16 +428,7 @@ func _build_geometry():
 
 	var wall_material = _create_stone_material("res://assets/wall_texture 1", Color(0.67, 0.66, 0.61), wall_uv_scale, true, 0.65)
 	var floor_material = _create_stone_material("res://assets/wall texture 2", Color(0.48, 0.46, 0.40), floor_uv_scale, false, 0.38)
-	var room_material = _create_emissive_material(Color(0.28, 0.30, 0.28), Color(0.04, 0.08, 0.06), 0.08)
-	room_material.roughness = 0.98
-	var exit_material = _create_emissive_material(Color(0.10, 0.52, 0.31), Color(0.05, 0.78, 0.36), 0.55)
-	var start_material = _create_emissive_material(Color(0.18, 0.32, 0.42), Color(0.10, 0.42, 0.65), 0.35)
 	var landmark_material = _create_emissive_material(Color(0.72, 0.61, 0.36), Color(0.95, 0.62, 0.18), 0.25)
-	var flashlight_material = _create_emissive_material(Color(0.85, 0.70, 0.36), Color(1.0, 0.78, 0.22), 0.35)
-	var battery_material = _create_emissive_material(Color(0.18, 0.68, 0.38), Color(0.12, 0.95, 0.46), 0.35)
-	var artifact_material = _create_emissive_material(Color(0.72, 0.12, 0.18), Color(1.0, 0.08, 0.16), 0.55)
-	var key_material = _create_emissive_material(Color(0.80, 0.56, 0.18), Color(1.0, 0.62, 0.16), 0.50)
-	var note_material = _create_emissive_material(Color(0.66, 0.58, 0.38), Color(0.90, 0.66, 0.28), 0.22)
 	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
 	detail_material.roughness = 1.0
 
@@ -472,27 +463,12 @@ func _build_geometry():
 				_add_wall(cell, wall_material, height_rng)
 			else:
 				if room_cells.has(cell):
-					_add_floor_plate(cell, room_material, "RoomFloor_%d_%d" % [x, y], 0.94)
 					if _should_add_room_ruin(cell):
 						_add_room_ruin(cell, wall_material, height_rng)
 
 				match marker:
-					START:
-						_add_floor_plate(cell, start_material, "StartMarker", 0.64)
-					EXIT:
-						_add_floor_plate(cell, exit_material, "ExitMarker", 0.72)
 					LANDMARK:
 						_add_landmark(cell, landmark_material, height_rng)
-					FLASHLIGHT_MARKER:
-						_add_floor_plate(cell, flashlight_material, "FlashlightPoint", 0.44)
-					BATTERY_MARKER:
-						_add_floor_plate(cell, battery_material, "BatteryPoint", 0.44)
-					ARTIFACT_MARKER:
-						_add_floor_plate(cell, artifact_material, "ArtifactPoint", 0.52)
-					KEY_MARKER:
-						_add_floor_plate(cell, key_material, "KeyPoint", 0.50)
-					NOTE_MARKER:
-						_add_floor_plate(cell, note_material, "NotePoint", 0.46)
 
 				if _should_add_floor_detail(cell):
 					_add_floor_detail(cell, detail_material, height_rng)
@@ -562,16 +538,6 @@ func _add_wall(grid_position: Vector2i, material: Material, height_rng: RandomNu
 	shape.size = Vector3(cell_size, w_height, cell_size)
 	collision.shape = shape
 	body.add_child(collision)
-
-func _add_floor_plate(grid_position: Vector2i, material: Material, node_name: String, size_scale: float):
-	var mesh_instance = MeshInstance3D.new()
-	mesh_instance.name = node_name
-	mesh_instance.position = grid_to_world(grid_position, 0.025)
-	var mesh = BoxMesh.new()
-	mesh.size = Vector3(cell_size * size_scale, 0.05, cell_size * size_scale)
-	mesh.material = material
-	mesh_instance.mesh = mesh
-	_maze_root.add_child(mesh_instance)
 
 func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
