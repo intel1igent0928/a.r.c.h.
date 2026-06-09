@@ -9,9 +9,12 @@ const GRAVITY = 24.0
 const DETECT_RANGE = 22.0
 const CATCH_RANGE = 1.35
 const LOSE_RANGE = 34.0
+const MONSTER_SOUND_SAMPLE_RATE = 22050
 
 @export var maze_builder_path: NodePath
 @export var player_path: NodePath
+@export_file("*.gltf", "*.glb", "*.tscn") var monster_model_path := "res://assets/monsters/demon/Demon.gltf"
+@export var imported_model_height := 2.35
 
 var state = State.SLEEP
 var target_world = Vector3.ZERO
@@ -23,12 +26,20 @@ var _body_root: Node3D
 var _pulse := 0.0
 var _repath_timer := 0.0
 var _growl_timer := 0.0
+var _animation_player: AnimationPlayer
+var _current_animation := ""
+var _imported_model_active := false
+var _monster_audio_player: AudioStreamPlayer3D
+var _monster_audio_playback: AudioStreamGeneratorPlayback
+var _monster_audio_phase := 0.0
+var _monster_audio_pulse := 0.0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	_maze_builder = get_node_or_null(maze_builder_path)
 	_player = get_node_or_null(player_path) as Node3D
 	_build_creature()
+	_build_monster_audio()
 	set_active(false)
 
 func set_active(enabled: bool):
@@ -54,10 +65,12 @@ func _physics_process(delta: float):
 	_update_state()
 	_follow_path(delta)
 	_update_visuals(delta)
+	_update_monster_audio()
 
 func _update_state():
 	var distance_to_player = global_position.distance_to(_player.global_position)
 	if distance_to_player <= CATCH_RANGE:
+		_play_animation("Punch")
 		var manager = get_tree().root.find_child("GameManager", true, false)
 		if manager and manager.has_method("kill_player"):
 			manager.kill_player("It found you in the maze.")
@@ -79,6 +92,7 @@ func _follow_path(delta: float):
 	if path.is_empty() or path_index >= path.size():
 		velocity.x = move_toward(velocity.x, 0.0, 12.0 * delta)
 		velocity.z = move_toward(velocity.z, 0.0, 12.0 * delta)
+		_play_animation("Idle")
 	else:
 		var target = path[path_index]
 		var flat_to_target = Vector3(target.x - global_position.x, 0.0, target.z - global_position.z)
@@ -91,6 +105,7 @@ func _follow_path(delta: float):
 			velocity.z = move_toward(velocity.z, direction.z * speed, 16.0 * delta)
 			var target_yaw = atan2(-direction.x, -direction.z)
 			rotation.y = lerp_angle(rotation.y, target_yaw, TURN_SPEED * delta)
+			_play_animation("Run" if state == State.CHASE else "Walk")
 
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
@@ -129,11 +144,16 @@ func _scare_player(amount: float):
 func _update_visuals(delta: float):
 	if not _body_root:
 		return
+	if _imported_model_active:
+		return
 	var intensity = 1.0 if state == State.CHASE else 0.45
 	_body_root.position.y = 0.08 + sin(_pulse * (8.0 if state == State.CHASE else 3.5)) * 0.08 * intensity
 	_body_root.rotation.z = sin(_pulse * 5.0) * 0.04 * intensity
 
 func _build_creature():
+	if _try_build_imported_creature():
+		return
+
 	_body_root = Node3D.new()
 	_body_root.name = "CreatureModel"
 	add_child(_body_root)
@@ -168,6 +188,172 @@ func _build_creature():
 	light.light_energy = 1.0
 	light.omni_range = 7.0
 	add_child(light)
+
+func _try_build_imported_creature() -> bool:
+	if monster_model_path.is_empty():
+		return false
+	var packed_scene = load(monster_model_path) as PackedScene
+	if not packed_scene:
+		return false
+
+	_body_root = Node3D.new()
+	_body_root.name = "CreatureModel"
+	add_child(_body_root)
+
+	var model = packed_scene.instantiate() as Node3D
+	if not model:
+		_body_root.queue_free()
+		_body_root = null
+		return false
+
+	model.name = "ImportedMonsterModel"
+	_body_root.add_child(model)
+	_normalize_imported_model(model)
+	_prepare_imported_visuals(model)
+	_animation_player = _find_animation_player(model)
+	_configure_imported_animations()
+	_imported_model_active = true
+	_play_animation("Idle")
+
+	var light = OmniLight3D.new()
+	light.name = "MonsterWarningGlow"
+	light.position = Vector3(0.0, 1.55, -0.45)
+	light.light_color = Color(1.0, 0.22, 0.08)
+	light.light_energy = 0.7
+	light.omni_range = 6.0
+	add_child(light)
+	return true
+
+func _normalize_imported_model(model: Node3D):
+	var bounds = _get_visual_bounds(model)
+	if bounds.size.y <= 0.01:
+		return
+	var scale_factor = imported_model_height / bounds.size.y
+	model.scale *= scale_factor
+	bounds = _get_visual_bounds(model)
+	model.global_position.y -= bounds.position.y - global_position.y
+
+func _get_visual_bounds(root: Node3D) -> AABB:
+	var bounds := AABB()
+	var has_bounds := false
+	for child in root.find_children("*", "VisualInstance3D", true, false):
+		var visual = child as VisualInstance3D
+		if not visual:
+			continue
+		var local_aabb = visual.get_aabb()
+		var global_aabb = _transform_aabb(visual.global_transform, local_aabb)
+		if has_bounds:
+			bounds = bounds.merge(global_aabb)
+		else:
+			bounds = global_aabb
+			has_bounds = true
+	return bounds
+
+func _transform_aabb(transform: Transform3D, aabb: AABB) -> AABB:
+	var corners = [
+		aabb.position,
+		aabb.position + Vector3(aabb.size.x, 0.0, 0.0),
+		aabb.position + Vector3(0.0, aabb.size.y, 0.0),
+		aabb.position + Vector3(0.0, 0.0, aabb.size.z),
+		aabb.position + Vector3(aabb.size.x, aabb.size.y, 0.0),
+		aabb.position + Vector3(aabb.size.x, 0.0, aabb.size.z),
+		aabb.position + Vector3(0.0, aabb.size.y, aabb.size.z),
+		aabb.position + aabb.size,
+	]
+	var min_point = transform * corners[0]
+	var max_point = min_point
+	for i in range(1, corners.size()):
+		var point = transform * corners[i]
+		min_point = min_point.min(point)
+		max_point = max_point.max(point)
+	return AABB(min_point, max_point - min_point)
+
+func _prepare_imported_visuals(root: Node3D):
+	for child in root.find_children("*", "GeometryInstance3D", true, false):
+		var geometry = child as GeometryInstance3D
+		if geometry:
+			geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
+func _find_animation_player(root: Node) -> AnimationPlayer:
+	if root is AnimationPlayer:
+		return root as AnimationPlayer
+	for child in root.get_children():
+		var found = _find_animation_player(child)
+		if found:
+			return found
+	return null
+
+func _configure_imported_animations():
+	if not _animation_player:
+		return
+	for candidate in _animation_player.get_animation_list():
+		var animation = _animation_player.get_animation(candidate)
+		if not animation:
+			continue
+		var lower = candidate.to_lower()
+		if lower.contains("idle") or lower.contains("walk") or lower.contains("run"):
+			animation.loop_mode = Animation.LOOP_LINEAR
+		else:
+			animation.loop_mode = Animation.LOOP_NONE
+
+func _play_animation(anim_name: String):
+	if not _animation_player:
+		return
+	var animation_name = _pick_animation(anim_name)
+	if animation_name.is_empty() or animation_name == _current_animation:
+		return
+	_animation_player.play(animation_name, 0.18)
+	_current_animation = animation_name
+
+func _pick_animation(anim_name: String) -> String:
+	if _animation_player.has_animation(anim_name):
+		return anim_name
+	var desired = anim_name.to_lower()
+	for candidate in _animation_player.get_animation_list():
+		var lower = candidate.to_lower()
+		if lower == desired or lower.ends_with("/" + desired) or lower.contains(desired):
+			return candidate
+	return ""
+
+func _build_monster_audio():
+	_monster_audio_player = AudioStreamPlayer3D.new()
+	_monster_audio_player.name = "ProceduralMonsterVoice"
+	_monster_audio_player.unit_size = 4.0
+	_monster_audio_player.max_distance = 30.0
+	_monster_audio_player.volume_db = -19.0
+	var stream = AudioStreamGenerator.new()
+	stream.mix_rate = MONSTER_SOUND_SAMPLE_RATE
+	stream.buffer_length = 0.35
+	_monster_audio_player.stream = stream
+	add_child(_monster_audio_player)
+	_monster_audio_player.play()
+	_monster_audio_playback = _monster_audio_player.get_stream_playback() as AudioStreamGeneratorPlayback
+
+func _update_monster_audio():
+	if not _monster_audio_playback:
+		return
+	var frames = _monster_audio_playback.get_frames_available()
+	for i in range(frames):
+		_monster_audio_playback.push_frame(_next_monster_audio_frame())
+
+func _next_monster_audio_frame() -> Vector2:
+	var intensity = 0.0
+	if visible:
+		intensity = 0.82 if state == State.CHASE else 0.34
+	if _player and visible:
+		var distance_pressure = clamp(1.0 - global_position.distance_to(_player.global_position) / 26.0, 0.0, 1.0)
+		intensity = max(intensity, distance_pressure)
+
+	_monster_audio_phase += TAU * lerp(34.0, 58.0, intensity) / float(MONSTER_SOUND_SAMPLE_RATE)
+	if _monster_audio_phase > TAU:
+		_monster_audio_phase -= TAU
+	_monster_audio_pulse += 1.0 / float(MONSTER_SOUND_SAMPLE_RATE)
+
+	var throat = sin(_monster_audio_phase) * 0.16
+	var rasp = (randf() * 2.0 - 1.0) * 0.055
+	var pulse = sin(_monster_audio_pulse * TAU * lerp(1.6, 4.5, intensity)) * 0.08
+	var sample = (throat + rasp + pulse) * intensity
+	return Vector2(sample, sample)
 
 func _add_sphere(node_name: String, pos: Vector3, scale_value: Vector3, material: Material):
 	var mesh_instance = MeshInstance3D.new()
