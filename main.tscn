@@ -16,10 +16,10 @@
 [ext_resource type="Script" path="res://atmosphere.gd" id="17_atmosphere"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
-sky_top_color = Color(0.42, 0.58, 0.72, 1)
-sky_horizon_color = Color(0.78, 0.70, 0.55, 1)
-ground_bottom_color = Color(0.18, 0.17, 0.15, 1)
-ground_horizon_color = Color(0.36, 0.34, 0.28, 1)
+sky_top_color = Color(0.045, 0.055, 0.07, 1)
+sky_horizon_color = Color(0.13, 0.11, 0.085, 1)
+ground_bottom_color = Color(0.018, 0.016, 0.014, 1)
+ground_horizon_color = Color(0.055, 0.050, 0.043, 1)
 
 [sub_resource type="Sky" id="Sky_base"]
 sky_material = SubResource("ProceduralSkyMaterial_1")
@@ -28,10 +28,15 @@ sky_material = SubResource("ProceduralSkyMaterial_1")
 background_mode = 2
 sky = SubResource("Sky_base")
 ambient_light_source = 3
-ambient_light_color = Color(0.68, 0.65, 0.58, 1)
-ambient_light_energy = 0.72
+ambient_light_color = Color(0.30, 0.28, 0.24, 1)
+ambient_light_energy = 0.34
 tonemap_mode = 2
 glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.20, 0.18, 0.15, 1)
+fog_light_energy = 0.28
+fog_density = 0.018
+fog_sky_affect = 0.55
 
 [sub_resource type="StandardMaterial3D" id="Material_floor"]
 albedo_color = Color(0.28, 0.29, 0.27, 1)
@@ -137,8 +142,8 @@ environment = SubResource("Environment_base")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.813798, -0.34202, 0.469846, 0, 0.809017, 0.587785, -0.581148, -0.478138, 0.658876, 0, 12, 0)
-light_color = Color(1, 0.86, 0.62, 1)
-light_energy = 0.58
+light_color = Color(0.74, 0.62, 0.44, 1)
+light_energy = 0.16
 shadow_enabled = true
 
 [node name="GameManager" type="Node" parent="."]
@@ -362,9 +367,9 @@ fov = 76.0
 [node name="Flashlight" type="SpotLight3D" parent="Player/CameraPivot/Camera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.08, -0.08, -0.18)
 light_color = Color(1, 0.92, 0.78, 1)
-light_energy = 4.5
-spot_range = 17.0
-spot_angle = 34.0
+light_energy = 6.8
+spot_range = 21.0
+spot_angle = 38.0
 
 [node name="ThirdPersonPivot" type="Node3D" parent="Player"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.05, 0)

@@ -35,7 +35,7 @@ func _ready():
 func _process(delta: float):
 	threat = max(threat - delta * 0.02, 0.0)
 	if _fear_overlay:
-		var target_alpha = clamp(threat * 0.22, 0.0, 0.46)
+		var target_alpha = clamp(threat * 0.07, 0.0, 0.16)
 		_fear_overlay.color.a = lerp(_fear_overlay.color.a, target_alpha, delta * 3.0)
 	_sync_mouse_mode()
 
@@ -174,7 +174,7 @@ func _build_ui():
 	_fear_overlay.name = "FearOverlay"
 	_fear_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fear_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_fear_overlay.color = Color(0.42, 0.02, 0.04, 0.0)
+	_fear_overlay.color = Color(0.03, 0.0, 0.015, 0.0)
 	_root_ui.add_child(_fear_overlay)
 
 	_objective_label = Label.new()

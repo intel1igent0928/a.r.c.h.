@@ -13,19 +13,20 @@ const KEY_MARKER = "K"
 const NOTE_MARKER = "N"
 
 @export var player_path: NodePath
-@export var maze_cells_x = 10
-@export var maze_cells_y = 8
-@export var cell_size = 8.0
+@export var maze_cells_x = 12
+@export var maze_cells_y = 10
+@export var cell_size = 6.4
 @export var min_wall_height = 7.5
 @export var max_wall_height = 11.5
-@export var branch_rate = 0.88
+@export var branch_rate = 0.93
 @export var maze_seed = 1842
-@export var extra_loops = 12
-@export var room_count = 7
-@export var landmark_count = 8
-@export var max_dead_end_length = 3
-@export var dead_end_removal_rate = 0.24
-@export var obstacle_chance = 0.12
+@export var extra_loops = 7
+@export var dead_end_spurs = 12
+@export var room_count = 10
+@export var landmark_count = 12
+@export var max_dead_end_length = 8
+@export var dead_end_removal_rate = 0.0
+@export var obstacle_chance = 0.18
 @export var wall_uv_scale = Vector3(0.42, 0.42, 0.42)
 @export var floor_uv_scale = Vector3(0.34, 0.34, 0.34)
 
@@ -149,6 +150,7 @@ func _generate_maze():
 	_set_cell(rows, start_grid, START)
 	_set_cell(rows, exit_grid, EXIT)
 	_carve_story_rooms(rows, rng)
+	_add_dead_end_spurs(rows, rng, dead_end_spurs)
 	_prune_dead_ends(rows, max_dead_end_length, rng)
 	_ensure_connection(rows, start_grid, exit_grid)
 	_select_pickup_cells(rows, rng)
@@ -230,6 +232,49 @@ func _carve_room(rows: Array[String], center: Vector2i, half_w: int, half_h: int
 				continue
 			_set_cell(rows, pos, ROOM)
 			room_cells[pos] = true
+
+func _add_dead_end_spurs(rows: Array[String], rng: RandomNumberGenerator, spur_count: int):
+	var attempts = spur_count * 12
+	var made = 0
+	while made < spur_count and attempts > 0:
+		attempts -= 1
+		var candidates = _get_walkable_cells(rows)
+		if candidates.is_empty():
+			return
+		var base = candidates[rng.randi_range(0, candidates.size() - 1)]
+		if base.distance_to(start_grid) < 5.0 or base.distance_to(exit_grid) < 5.0:
+			continue
+		if room_cells.has(base) or pickup_cells.values().has(base):
+			continue
+
+		var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+		_shuffle_cells(dirs, rng)
+		for dir in dirs:
+			var first = base + dir
+			if _get_cell(rows, first) != WALL:
+				continue
+			var length = rng.randi_range(2, 5)
+			var carved: Array[Vector2i] = []
+			var current = base
+			var valid = true
+			for i in range(length):
+				current += dir
+				if current.x <= 0 or current.y <= 0 or current.x >= rows[0].length() - 1 or current.y >= rows.size() - 1:
+					valid = false
+					break
+				if _get_cell(rows, current) != WALL:
+					valid = false
+					break
+				carved.append(current)
+				if i > 0 and _count_path_neighbors(rows, current) > 0:
+					valid = false
+					break
+			if not valid or carved.is_empty():
+				continue
+			for cell in carved:
+				_set_cell(rows, cell, PATH)
+			made += 1
+			break
 
 func _select_pickup_cells(rows: Array[String], rng: RandomNumberGenerator):
 	var reserved := {}
@@ -393,6 +438,8 @@ func _build_geometry():
 	var artifact_material = _create_emissive_material(Color(0.72, 0.12, 0.18), Color(1.0, 0.08, 0.16), 0.55)
 	var key_material = _create_emissive_material(Color(0.80, 0.56, 0.18), Color(1.0, 0.62, 0.16), 0.50)
 	var note_material = _create_emissive_material(Color(0.66, 0.58, 0.38), Color(0.90, 0.66, 0.28), 0.22)
+	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
+	detail_material.roughness = 1.0
 
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
@@ -446,6 +493,9 @@ func _build_geometry():
 						_add_floor_plate(cell, key_material, "KeyPoint", 0.50)
 					NOTE_MARKER:
 						_add_floor_plate(cell, note_material, "NotePoint", 0.46)
+
+				if _should_add_floor_detail(cell):
+					_add_floor_detail(cell, detail_material, height_rng)
 
 func _create_stone_material(folder: String, tint: Color, uv_scale: Vector3, use_displacement: bool, normal_scale: float) -> StandardMaterial3D:
 	var material = StandardMaterial3D.new()
@@ -567,8 +617,8 @@ func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumbe
 	light.name = "LandmarkLight"
 	light.position = Vector3(0.0, 2.9, 0.0)
 	light.light_color = Color(1.0, 0.62, 0.28)
-	light.light_energy = 1.8
-	light.omni_range = 11.0
+	light.light_energy = 1.15
+	light.omni_range = 7.5
 	light.shadow_enabled = false
 	_setup_flicker(light)
 	root.add_child(light)
@@ -578,7 +628,7 @@ func _should_add_room_ruin(cell: Vector2i) -> bool:
 		return false
 	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
 		return false
-	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 7 == 0
+	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 4 == 0
 
 func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
@@ -606,19 +656,45 @@ func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumb
 	pillar.position = Vector3(rng.randf_range(-2.0, 2.0), pillar_mesh.height * 0.5, rng.randf_range(-2.0, 2.0))
 	root.add_child(pillar)
 
+func _should_add_floor_detail(cell: Vector2i) -> bool:
+	if cell.distance_to(start_grid) < 3.0 or cell.distance_to(exit_grid) < 2.0:
+		return false
+	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
+		return false
+	var chance_divisor = 3 if room_cells.has(cell) else 5
+	return int(abs(cell.x * 13 + cell.y * 29 + maze_seed)) % chance_divisor == 0
+
+func _add_floor_detail(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
+	var root = Node3D.new()
+	root.name = "FloorDetail_%d_%d" % [grid_position.x, grid_position.y]
+	root.position = grid_to_world(grid_position, 0.0)
+	root.rotation.y = rng.randf_range(0.0, TAU)
+	_maze_root.add_child(root)
+
+	var pieces = rng.randi_range(2, 5)
+	for i in range(pieces):
+		var mesh_instance = MeshInstance3D.new()
+		var mesh = BoxMesh.new()
+		mesh.size = Vector3(rng.randf_range(0.28, 0.72), rng.randf_range(0.08, 0.24), rng.randf_range(0.24, 0.68))
+		mesh.material = material
+		mesh_instance.mesh = mesh
+		mesh_instance.position = Vector3(rng.randf_range(-1.8, 1.8), mesh.size.y * 0.5, rng.randf_range(-1.8, 1.8))
+		mesh_instance.rotation.y = rng.randf_range(0.0, TAU)
+		root.add_child(mesh_instance)
+
 func _build_lights():
 	var light_rng = RandomNumberGenerator.new()
 	light_rng.seed = maze_seed + 1234
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
 
-	_add_map_light("StartLight", start_grid, Color(1.0, 0.76, 0.48), 2.4, 18.0, false)
-	_add_map_light("ExitLight", exit_grid, Color(0.20, 0.95, 0.58), 3.0, 20.0, false)
+	_add_map_light("StartLight", start_grid, Color(1.0, 0.70, 0.40), 1.8, 12.0, false)
+	_add_map_light("ExitLight", exit_grid, Color(0.16, 0.82, 0.46), 2.3, 13.5, false)
 
 	for cell in pickup_cells.values():
-		_add_map_light("PickupLight_%d_%d" % [cell.x, cell.y], cell, Color(0.90, 0.78, 0.38), 1.3, 9.5, false)
+		_add_map_light("PickupLight_%d_%d" % [cell.x, cell.y], cell, Color(0.90, 0.70, 0.30), 0.85, 6.8, false)
 	for cell in note_cells:
-		_add_map_light("NoteLight_%d_%d" % [cell.x, cell.y], cell, Color(0.92, 0.62, 0.30), 0.8, 7.0, false)
+		_add_map_light("NoteLight_%d_%d" % [cell.x, cell.y], cell, Color(0.88, 0.50, 0.22), 0.55, 5.4, false)
 
 	for y in range(1, grid_h - 1):
 		for x in range(1, grid_w - 1):
@@ -631,15 +707,15 @@ func _build_lights():
 				continue
 
 			var neighbors = _count_path_neighbors(radar_grid, cell)
-			var chance = 0.18
+			var chance = 0.10
 			if room_cells.has(cell):
-				chance = 0.08
+				chance = 0.05
 			elif neighbors == 1 or neighbors >= 3:
-				chance = 0.34
+				chance = 0.22
 
 			if light_rng.randf() < chance:
-				var energy = light_rng.randf_range(1.1, 1.8)
-				var range_value = light_rng.randf_range(12.0, 16.5)
+				var energy = light_rng.randf_range(0.65, 1.25)
+				var range_value = light_rng.randf_range(8.5, 11.5)
 				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(1.0, 0.73, 0.46), energy, range_value, false)
 
 func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: float, range_value: float, casts_shadow: bool):
