@@ -4,3 +4,5 @@
 *.exr
 *.exr.import
 *.rar
+/assets/modelsfotg/*.zip
+/assets/texturesforg/*.zip
