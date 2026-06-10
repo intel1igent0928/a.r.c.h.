@@ -791,7 +791,7 @@ func _add_wall_surface_details(body: Node3D, grid_position: Vector2i, wall_heigh
 
 	for dir in exposed_dirs:
 		var score = abs(grid_position.x * 61 + grid_position.y * 97 + dir.x * 13 + dir.y * 29 + maze_seed) % 100
-		if score >= 28:
+		if score >= 16:
 			continue
 		var style = score % 3
 		var material = shadow_material if style == 1 else detail_material
@@ -972,7 +972,7 @@ func _build_environment_props():
 	var cells = _get_walkable_cells(radar_grid)
 	_shuffle_cells(cells, rng)
 	var placed = 0
-	var max_props = min(34, max(18, int(cells.size() * 0.11)))
+	var max_props = min(18, max(10, int(cells.size() * 0.055)))
 
 	for cell in cells:
 		if placed >= max_props:
