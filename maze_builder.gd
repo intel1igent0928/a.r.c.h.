@@ -14,7 +14,7 @@ const NOTE_MARKER = "N"
 const TORCH_MODEL_PATH = "res://assets/props/torch/burning_torch.glb"
 const PROP_MODEL_SCRIPT = preload("res://prop_model.gd")
 
-enum VisualZone { DEFAULT, CAVE, ARCHIVE, MIRROR, STRANGE }
+enum VisualZone { NORMAL_MAZE, TIGHT_START, BRANCHING_MID, STRANGE_ROOM, MINI_MAZE_ROOM, MIRROR_ZONE_PLACEHOLDER, CAVE_ZONE, LANDMARK_ROOM }
 
 const WALL_SURFACE_SOURCES = [
 	{"folder": "res://assets/texturesforg/imported/stone_wall_2k", "prefix": "stone_wall", "tint": Color(0.62, 0.61, 0.56), "normal": 0.72},
@@ -70,6 +70,11 @@ const ENVIRONMENT_PROP_SOURCES = {
 @export var obstacle_chance = 0.24
 @export var wall_uv_scale = Vector3(0.42, 0.42, 0.42)
 @export var floor_uv_scale = Vector3(0.34, 0.34, 0.34)
+@export var strange_room_count = 3
+@export var mini_maze_room_count = 1
+@export var mirror_zone_count = 1
+@export var landmark_room_count = 2
+@export var max_straight_corridor_cells = 5
 
 var radar_grid: Array[String] = []
 var start_grid = Vector2i.ZERO
@@ -86,6 +91,8 @@ var monster_spawn_grid = Vector2i.ZERO
 var _maze_root: Node3D
 var visual_zone_cells := {}
 var visual_zone_defs := {}
+var landmark_room_defs: Array[Dictionary] = []
+var special_zone_centers: Array[Vector2i] = []
 
 func _ready():
 	_remove_test_arena()
@@ -152,10 +159,12 @@ func _generate_maze():
 	room_cells.clear()
 	cave_cells.clear()
 	landmark_cells.clear()
+	landmark_room_defs.clear()
 	note_cells.clear()
 	pickup_cells.clear()
 	visual_zone_cells.clear()
 	visual_zone_defs.clear()
+	special_zone_centers.clear()
 
 	var grid_w = maze_cells_x * 2 + 1
 	var grid_h = maze_cells_y * 2 + 1
@@ -206,12 +215,17 @@ func _generate_maze():
 		active.append(next_cell)
 
 	_add_extra_loops(rows, rng, extra_loops)
-	_add_progression_loops(rows, rng, 9)
+	_add_progression_loops(rows, rng, 7)
 	_set_cell(rows, start_grid, START)
 	_set_cell(rows, exit_grid, EXIT)
+	_shape_tight_start(rows, rng)
+	_add_branching_mid_paths(rows, rng)
 	_carve_story_rooms(rows, rng)
+	_carve_special_zones(rows, rng)
 	_carve_cave_sector(rows, rng)
+	_carve_landmark_rooms(rows, rng)
 	_add_dead_end_spurs(rows, rng, dead_end_spurs)
+	_break_long_straight_corridors(rows, rng)
 	_prune_dead_ends(rows, max_dead_end_length, rng)
 	_ensure_connection(rows, start_grid, exit_grid)
 	_select_pickup_cells(rows, rng)
@@ -284,6 +298,207 @@ func _add_progression_loops(rows: Array[String], rng: RandomNumberGenerator, loo
 			_set_cell(rows, between, PATH)
 			made += 1
 			break
+
+func _shape_tight_start(rows: Array[String], rng: RandomNumberGenerator):
+	var distances = _get_distance_map(rows, start_grid)
+	var tight_cells: Array[Vector2i] = []
+	for key in distances.keys():
+		var cell = key
+		if int(distances[cell]) <= 8:
+			tight_cells.append(cell)
+			visual_zone_cells[cell] = VisualZone.TIGHT_START
+	_register_visual_zone("tight_start", VisualZone.TIGHT_START, tight_cells)
+
+	var candidates := tight_cells.duplicate()
+	_shuffle_cells(candidates, rng)
+	var closed = 0
+	for cell in candidates:
+		if closed >= 5:
+			break
+		if cell == start_grid or cell == exit_grid:
+			continue
+		if _get_cell(rows, cell) != PATH:
+			continue
+		if _count_path_neighbors(rows, cell) < 3:
+			continue
+		if _try_turn_cells_to_walls(rows, [cell]):
+			closed += 1
+	_set_cell(rows, start_grid, START)
+
+func _add_branching_mid_paths(rows: Array[String], rng: RandomNumberGenerator):
+	var distances = _get_distance_map(rows, start_grid)
+	if distances.is_empty():
+		return
+	var max_dist = 0
+	for value in distances.values():
+		max_dist = max(max_dist, int(value))
+
+	var mid_cells: Array[Vector2i] = []
+	for key in distances.keys():
+		var cell = key
+		var distance = int(distances[cell])
+		if distance >= int(max_dist * 0.34) and distance <= int(max_dist * 0.68):
+			mid_cells.append(cell)
+			visual_zone_cells[cell] = VisualZone.BRANCHING_MID
+	_register_visual_zone("branching_mid", VisualZone.BRANCHING_MID, mid_cells)
+
+	var candidates = mid_cells.duplicate()
+	_shuffle_cells(candidates, rng)
+	var made = 0
+	for base in candidates:
+		if made >= 11:
+			break
+		if room_cells.has(base) or _count_path_neighbors(rows, base) > 2:
+			continue
+		var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+		_shuffle_cells(dirs, rng)
+		for dir in dirs:
+			var first = base + dir
+			var second = first + dir
+			if _get_cell(rows, first) != WALL:
+				continue
+			if second.x <= 0 or second.y <= 0 or second.x >= rows[0].length() - 1 or second.y >= rows.size() - 1:
+				continue
+			if _is_walkable_cell(rows, second):
+				_set_cell(rows, first, PATH)
+				made += 1
+				break
+			if _get_cell(rows, second) == WALL and rng.randf() < 0.55:
+				_set_cell(rows, first, PATH)
+				_set_cell(rows, second, PATH)
+				made += 1
+				break
+
+func _carve_special_zones(rows: Array[String], rng: RandomNumberGenerator):
+	var distances = _get_distance_map(rows, start_grid)
+	if distances.is_empty():
+		return
+	var max_dist = 0
+	for value in distances.values():
+		max_dist = max(max_dist, int(value))
+
+	var reserved := {}
+	reserved[start_grid] = true
+	reserved[exit_grid] = true
+
+	for i in range(strange_room_count):
+		var center = _choose_zone_center(rows, distances, int(max_dist * 0.22), int(max_dist * 0.82), reserved, rng, 6.0)
+		if center != Vector2i(-1, -1):
+			_carve_strange_room(rows, center, rng, "strange_room_%d" % i)
+			special_zone_centers.append(center)
+			reserved[center] = true
+
+	for i in range(mini_maze_room_count):
+		var center = _choose_zone_center(rows, distances, int(max_dist * 0.42), int(max_dist * 0.76), reserved, rng, 8.0)
+		if center != Vector2i(-1, -1):
+			_carve_mini_maze_room(rows, center, rng, "mini_maze_room_%d" % i)
+			special_zone_centers.append(center)
+			reserved[center] = true
+
+	for i in range(mirror_zone_count):
+		var center = _choose_zone_center(rows, distances, int(max_dist * 0.56), int(max_dist * 0.88), reserved, rng, 9.0)
+		if center != Vector2i(-1, -1):
+			_carve_mirror_placeholder(rows, center, rng, "mirror_placeholder_%d" % i)
+			special_zone_centers.append(center)
+			reserved[center] = true
+
+func _choose_zone_center(rows: Array[String], distances: Dictionary, min_distance: int, max_distance: int, reserved: Dictionary, rng: RandomNumberGenerator, min_gap: float) -> Vector2i:
+	var candidates: Array[Vector2i] = []
+	for key in distances.keys():
+		var cell = key
+		if reserved.has(cell):
+			continue
+		if cell.x < 4 or cell.y < 4 or cell.x > rows[0].length() - 5 or cell.y > rows.size() - 5:
+			continue
+		if cell.distance_to(start_grid) < 5.0 or cell.distance_to(exit_grid) < 5.0:
+			continue
+		var distance = int(distances[cell])
+		if distance < min_distance or distance > max_distance:
+			continue
+		var too_close = false
+		for zone_center in special_zone_centers:
+			if cell.distance_to(zone_center) < min_gap:
+				too_close = true
+				break
+		if too_close:
+			continue
+		candidates.append(cell)
+
+	if candidates.is_empty():
+		return Vector2i(-1, -1)
+	_shuffle_cells(candidates, rng)
+	return candidates[0]
+
+func _carve_strange_room(rows: Array[String], center: Vector2i, rng: RandomNumberGenerator, zone_name: String):
+	var cells: Array[Vector2i] = []
+	var pattern: Array[Vector2i] = [
+		Vector2i.ZERO,
+		Vector2i.RIGHT,
+		Vector2i.LEFT,
+		Vector2i.UP,
+		Vector2i.DOWN,
+		Vector2i(1, 1) if rng.randf() < 0.5 else Vector2i(-1, -1),
+	]
+	for offset in pattern:
+		var cell = center + offset
+		if _can_carve_zone_cell(rows, cell):
+			_carve_zone_cell(rows, cell, VisualZone.STRANGE_ROOM, cells)
+	_ensure_connection(rows, start_grid, center)
+	_register_visual_zone(zone_name, VisualZone.STRANGE_ROOM, cells)
+
+func _carve_mini_maze_room(rows: Array[String], center: Vector2i, rng: RandomNumberGenerator, zone_name: String):
+	var cells: Array[Vector2i] = []
+	var bounds = Rect2i(center - Vector2i(3, 2), Vector2i(7, 5))
+	var local_nodes = [
+		center + Vector2i(-2, -1),
+		center + Vector2i(0, -1),
+		center + Vector2i(2, -1),
+		center + Vector2i(-2, 1),
+		center + Vector2i(0, 1),
+		center + Vector2i(2, 1),
+	]
+	for node in local_nodes:
+		if _rect_contains_grid(rows, bounds, node):
+			_carve_zone_cell(rows, node, VisualZone.MINI_MAZE_ROOM, cells)
+
+	var links = [
+		[0, 1],
+		[1, 2],
+		[1, 4],
+		[3, 4],
+		[4, 5],
+	]
+	if rng.randf() < 0.55:
+		links.append([0, 3])
+	if rng.randf() < 0.35:
+		links.append([2, 5])
+	for link in links:
+		var a = local_nodes[link[0]]
+		var b = local_nodes[link[1]]
+		var mid = Vector2i(int((a.x + b.x) / 2), int((a.y + b.y) / 2))
+		if _rect_contains_grid(rows, bounds, mid):
+			_carve_zone_cell(rows, mid, VisualZone.MINI_MAZE_ROOM, cells)
+
+	_ensure_connection(rows, start_grid, local_nodes[0])
+	_register_visual_zone(zone_name, VisualZone.MINI_MAZE_ROOM, cells)
+
+func _carve_mirror_placeholder(rows: Array[String], center: Vector2i, rng: RandomNumberGenerator, zone_name: String):
+	var cells: Array[Vector2i] = []
+	var pattern = [
+		Vector2i.ZERO,
+		Vector2i.LEFT,
+		Vector2i.RIGHT,
+		Vector2i.UP,
+		Vector2i.DOWN,
+		Vector2i(-2, 0),
+		Vector2i(2, 0),
+	]
+	for offset in pattern:
+		var cell = center + offset
+		if _can_carve_zone_cell(rows, cell):
+			_carve_zone_cell(rows, cell, VisualZone.MIRROR_ZONE_PLACEHOLDER, cells)
+	_ensure_connection(rows, start_grid, center)
+	_register_visual_zone(zone_name, VisualZone.MIRROR_ZONE_PLACEHOLDER, cells)
 
 func _carve_story_rooms(rows: Array[String], rng: RandomNumberGenerator):
 	var candidates = _get_walkable_cells(rows)
@@ -413,6 +628,141 @@ func _carve_cave_cell(rows: Array[String], cell: Vector2i):
 	_set_cell(rows, cell, ROOM)
 	room_cells[cell] = true
 	cave_cells[cell] = true
+	visual_zone_cells[cell] = VisualZone.CAVE_ZONE
+
+func _carve_landmark_rooms(rows: Array[String], rng: RandomNumberGenerator):
+	var distances = _get_distance_map(rows, start_grid)
+	if distances.is_empty():
+		return
+	var max_dist = 0
+	for value in distances.values():
+		max_dist = max(max_dist, int(value))
+	var reserved := {}
+	for cell in pickup_cells.values():
+		reserved[cell] = true
+	var themes = ["columns", "crates", "inner_building", "reward_dead_end"]
+	for i in range(landmark_room_count):
+		var center = _choose_zone_center(rows, distances, int(max_dist * 0.30), int(max_dist * 0.84), reserved, rng, 7.0)
+		if center == Vector2i(-1, -1):
+			continue
+		var theme = themes[i % themes.size()]
+		var cells: Array[Vector2i] = []
+		match theme:
+			"columns":
+				_carve_compact_room_cells(rows, center, 1, 1, VisualZone.LANDMARK_ROOM, cells)
+			"crates":
+				_carve_compact_room_cells(rows, center, 1, 0, VisualZone.LANDMARK_ROOM, cells)
+				_carve_zone_cell(rows, center + Vector2i(0, 1), VisualZone.LANDMARK_ROOM, cells)
+			"inner_building":
+				_carve_compact_room_cells(rows, center, 2, 1, VisualZone.LANDMARK_ROOM, cells)
+				_try_turn_cells_to_walls(rows, [center + Vector2i(-1, 0), center + Vector2i(1, 0)])
+			"reward_dead_end":
+				_carve_zone_cell(rows, center, VisualZone.LANDMARK_ROOM, cells)
+				var dirs: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+				_shuffle_cells(dirs, rng)
+				for dir in dirs:
+					if _get_cell(rows, center + dir) == WALL:
+						_carve_zone_cell(rows, center + dir, VisualZone.LANDMARK_ROOM, cells)
+						break
+		_ensure_connection(rows, start_grid, center)
+		_register_visual_zone("landmark_%s_%d" % [theme, i], VisualZone.LANDMARK_ROOM, cells)
+		landmark_room_defs.append({"theme": theme, "center": center, "cells": cells})
+		special_zone_centers.append(center)
+		reserved[center] = true
+
+func _break_long_straight_corridors(rows: Array[String], rng: RandomNumberGenerator):
+	var runs = _find_straight_corridor_runs(rows)
+	_shuffle_runs(runs, rng)
+	var made = 0
+	for run in runs:
+		var cells: Array = run.get("cells", [])
+		if cells.size() <= max_straight_corridor_cells:
+			continue
+		var axis = str(run.get("axis", ""))
+		var interval = max(3, max_straight_corridor_cells)
+		var index = interval
+		while index < cells.size() - 1 and made < 14:
+			var base = cells[index]
+			if base.distance_to(start_grid) < 4.0 or base.distance_to(exit_grid) < 4.0:
+				index += interval
+				continue
+			var side_dirs: Array[Vector2i] = [Vector2i.UP, Vector2i.DOWN] if axis == "x" else [Vector2i.LEFT, Vector2i.RIGHT]
+			_shuffle_cells(side_dirs, rng)
+			for side in side_dirs:
+				var niche = base + side
+				var back = niche + side
+				if _get_cell(rows, niche) != WALL:
+					continue
+				if back.x <= 0 or back.y <= 0 or back.x >= rows[0].length() - 1 or back.y >= rows.size() - 1:
+					continue
+				_set_cell(rows, niche, PATH)
+				if rng.randf() < 0.35 and _get_cell(rows, back) == WALL:
+					_set_cell(rows, back, PATH)
+				made += 1
+				break
+			index += interval
+
+func _find_straight_corridor_runs(rows: Array[String]) -> Array[Dictionary]:
+	var runs: Array[Dictionary] = []
+	for y in range(1, rows.size() - 1):
+		var current: Array[Vector2i] = []
+		for x in range(1, rows[0].length() - 1):
+			var cell = Vector2i(x, y)
+			if _get_corridor_axis(rows, cell) == "x":
+				current.append(cell)
+			else:
+				if current.size() > 0:
+					runs.append({"axis": "x", "cells": current.duplicate()})
+					current.clear()
+		if current.size() > 0:
+			runs.append({"axis": "x", "cells": current.duplicate()})
+
+	for x in range(1, rows[0].length() - 1):
+		var current: Array[Vector2i] = []
+		for y in range(1, rows.size() - 1):
+			var cell = Vector2i(x, y)
+			if _get_corridor_axis(rows, cell) == "z":
+				current.append(cell)
+			else:
+				if current.size() > 0:
+					runs.append({"axis": "z", "cells": current.duplicate()})
+					current.clear()
+		if current.size() > 0:
+			runs.append({"axis": "z", "cells": current.duplicate()})
+	return runs
+
+func _shuffle_runs(runs: Array[Dictionary], rng: RandomNumberGenerator):
+	if runs.size() < 2:
+		return
+	for i in range(runs.size()):
+		var j = rng.randi_range(i, runs.size() - 1)
+		var temp = runs[i]
+		runs[i] = runs[j]
+		runs[j] = temp
+
+func _carve_compact_room_cells(rows: Array[String], center: Vector2i, half_w: int, half_h: int, zone_type: int, cells: Array[Vector2i]):
+	for y in range(center.y - half_h, center.y + half_h + 1):
+		for x in range(center.x - half_w, center.x + half_w + 1):
+			var cell = Vector2i(x, y)
+			if _can_carve_zone_cell(rows, cell):
+				_carve_zone_cell(rows, cell, zone_type, cells)
+
+func _carve_zone_cell(rows: Array[String], cell: Vector2i, zone_type: int, cells: Array[Vector2i]):
+	if not _can_carve_zone_cell(rows, cell):
+		return
+	_set_cell(rows, cell, ROOM)
+	room_cells[cell] = true
+	visual_zone_cells[cell] = zone_type
+	if not cells.has(cell):
+		cells.append(cell)
+
+func _can_carve_zone_cell(rows: Array[String], cell: Vector2i) -> bool:
+	if cell.x <= 0 or cell.y <= 0 or cell.x >= rows[0].length() - 1 or cell.y >= rows.size() - 1:
+		return false
+	return cell != start_grid and cell != exit_grid
+
+func _rect_contains_grid(rows: Array[String], rect: Rect2i, cell: Vector2i) -> bool:
+	return cell.x >= max(1, rect.position.x) and cell.y >= max(1, rect.position.y) and cell.x <= min(rows[0].length() - 2, rect.position.x + rect.size.x - 1) and cell.y <= min(rows.size() - 2, rect.position.y + rect.size.y - 1)
 
 func _clamp_to_rect(cell: Vector2i, rect: Rect2i) -> Vector2i:
 	return Vector2i(
@@ -652,14 +1002,13 @@ func _build_geometry():
 			var cell = Vector2i(x, y)
 			var marker = radar_grid[y].substr(x, 1)
 			if marker == WALL:
-				var material_pool = cave_materials if _wall_touches_zone(cell, VisualZone.CAVE) else wall_materials
-				_add_wall(cell, _pick_material_variant(cell, material_pool, 19), wall_detail_material, wall_shadow_material, height_rng)
+				_add_wall(cell, _pick_zone_wall_material(cell, wall_materials, cave_materials), wall_detail_material, wall_shadow_material, height_rng)
 			else:
 				if room_cells.has(cell):
 					if _should_add_room_ruin(cell):
-						_add_room_ruin(cell, _pick_material_variant(cell, wall_materials, 31), height_rng)
+						_add_room_ruin(cell, _pick_zone_room_material(cell, wall_materials, cave_materials), height_rng)
 				if cave_cells.has(cell) and _should_add_cave_feature(cell):
-					_add_cave_feature(cell, _pick_material_variant(cell, cave_materials, 43), height_rng)
+					_add_cave_feature(cell, _pick_zone_room_material(cell, wall_materials, cave_materials), height_rng)
 
 				if _should_add_floor_detail(cell):
 					_add_floor_detail(cell, detail_material, height_rng)
@@ -758,6 +1107,41 @@ func _pick_material_variant(cell: Vector2i, variants: Array[Material], salt: int
 	var index = abs(cell.x * 73856093 + cell.y * 19349663 + maze_seed * 83492791 + salt) % variants.size()
 	return variants[index]
 
+func _pick_zone_wall_material(cell: Vector2i, wall_materials: Array[Material], cave_materials: Array[Material]) -> Material:
+	var zone = _get_adjacent_visual_zone(cell)
+	match zone:
+		VisualZone.CAVE_ZONE:
+			return _material_at(cave_materials, 4)
+		VisualZone.MIRROR_ZONE_PLACEHOLDER:
+			return _material_at(wall_materials, 1)
+		VisualZone.MINI_MAZE_ROOM:
+			return _material_at(wall_materials, 2)
+		VisualZone.LANDMARK_ROOM:
+			return _material_at(wall_materials, 3)
+		VisualZone.STRANGE_ROOM:
+			return _material_at(wall_materials, 5)
+		VisualZone.BRANCHING_MID:
+			return _material_at(wall_materials, 2)
+		VisualZone.TIGHT_START:
+			return _material_at(wall_materials, 1)
+		_:
+			return _material_at(wall_materials, 1)
+
+func _pick_zone_room_material(cell: Vector2i, wall_materials: Array[Material], cave_materials: Array[Material]) -> Material:
+	var zone = _get_visual_zone(cell)
+	if zone == VisualZone.CAVE_ZONE:
+		return _material_at(cave_materials, 4)
+	if zone == VisualZone.MIRROR_ZONE_PLACEHOLDER:
+		return _material_at(wall_materials, 1)
+	if zone == VisualZone.LANDMARK_ROOM:
+		return _material_at(wall_materials, 3)
+	return _material_at(wall_materials, 2)
+
+func _material_at(materials: Array[Material], index: int) -> Material:
+	if materials.is_empty():
+		return null
+	return materials[clamp(index, 0, materials.size() - 1)]
+
 func _add_wall(grid_position: Vector2i, material: Material, detail_material: Material, shadow_material: Material, height_rng: RandomNumberGenerator):
 	var w_height = height_rng.randf_range(min_wall_height, max_wall_height)
 
@@ -793,18 +1177,25 @@ func _add_wall_surface_details(body: Node3D, grid_position: Vector2i, wall_heigh
 		var score = abs(grid_position.x * 61 + grid_position.y * 97 + dir.x * 13 + dir.y * 29 + maze_seed) % 100
 		if score >= 16:
 			continue
-		var style = score % 3
+		var style = score % 5
 		var material = shadow_material if style == 1 else detail_material
 		_add_wall_face_detail(body, dir, wall_height, material, rng, style)
 
 func _add_wall_face_detail(body: Node3D, dir: Vector2i, wall_height: float, material: Material, rng: RandomNumberGenerator, style: int):
+	if style == 4:
+		_add_arch_placeholder(body, dir, wall_height, material, rng)
+		return
 	var detail = MeshInstance3D.new()
-	detail.name = "WallFaceDetail"
+	var names = ["wall_bump", "wall_crack_plate", "wall_pillar", "broken_wall_piece"]
+	detail.name = names[clamp(style, 0, names.size() - 1)]
 	var mesh = BoxMesh.new()
 	var thickness = 0.045 if style == 1 else rng.randf_range(0.08, 0.18)
 	var detail_height = rng.randf_range(1.1, 2.6)
 	var detail_width = rng.randf_range(1.2, 2.9)
 	if style == 2:
+		detail_height = rng.randf_range(2.6, 4.2)
+		detail_width = rng.randf_range(0.26, 0.42)
+	elif style == 3:
 		detail_height = rng.randf_range(0.18, 0.36)
 		detail_width = rng.randf_range(2.0, 4.6)
 
@@ -817,6 +1208,36 @@ func _add_wall_face_detail(body: Node3D, dir: Vector2i, wall_height: float, mate
 	mesh.material = material
 	detail.mesh = mesh
 	body.add_child(detail)
+
+func _add_arch_placeholder(body: Node3D, dir: Vector2i, wall_height: float, material: Material, rng: RandomNumberGenerator):
+	var root = Node3D.new()
+	root.name = "arch_placeholder"
+	body.add_child(root)
+	var face_offset = cell_size * 0.5 + 0.08
+	var width = rng.randf_range(1.8, 2.4)
+	var post_height = rng.randf_range(2.0, 2.8)
+	var top_height = 0.28
+	var pieces = [
+		{"offset": -width * 0.5, "size": Vector3(0.20, post_height, 0.16), "y": post_height * 0.5 - wall_height * 0.16},
+		{"offset": width * 0.5, "size": Vector3(0.20, post_height, 0.16), "y": post_height * 0.5 - wall_height * 0.16},
+		{"offset": 0.0, "size": Vector3(width + 0.45, top_height, 0.18), "y": post_height + top_height * 0.5 - wall_height * 0.16},
+	]
+	for piece in pieces:
+		var mesh_instance = MeshInstance3D.new()
+		mesh_instance.name = "arch_piece"
+		var mesh = BoxMesh.new()
+		mesh.material = material
+		var piece_size: Vector3 = piece["size"]
+		var piece_offset = float(piece["offset"])
+		var piece_y = float(piece["y"])
+		if dir.x != 0:
+			mesh.size = Vector3(piece_size.z, piece_size.y, piece_size.x)
+			mesh_instance.position = Vector3(dir.x * face_offset, piece_y, piece_offset)
+		else:
+			mesh.size = piece_size
+			mesh_instance.position = Vector3(piece_offset, piece_y, dir.y * face_offset)
+		mesh_instance.mesh = mesh
+		root.add_child(mesh_instance)
 
 func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
@@ -996,6 +1417,13 @@ func _build_environment_props():
 		placed += 1
 
 func _get_environment_prop_chance(cell: Vector2i, neighbors: int) -> float:
+	var zone = _get_visual_zone(cell)
+	if zone == VisualZone.LANDMARK_ROOM:
+		return 0.45
+	if zone == VisualZone.MINI_MAZE_ROOM or zone == VisualZone.STRANGE_ROOM:
+		return 0.30
+	if zone == VisualZone.MIRROR_ZONE_PLACEHOLDER:
+		return 0.16
 	if cave_cells.has(cell):
 		return 0.30
 	if room_cells.has(cell):
@@ -1011,9 +1439,15 @@ func _choose_environment_prop(cell: Vector2i, neighbors: int, rng: RandomNumberG
 	var category = "rocks"
 	if neighbors == 1:
 		category = "dead_end"
+	elif zone == VisualZone.LANDMARK_ROOM:
+		category = "wall_relics" if rng.randf() < 0.65 else "storage"
+	elif zone == VisualZone.MINI_MAZE_ROOM:
+		category = "storage"
+	elif zone == VisualZone.MIRROR_ZONE_PLACEHOLDER:
+		category = "wall_relics"
 	elif room_cells.has(cell):
 		category = "wall_relics" if rng.randf() < 0.55 else "storage"
-	elif zone == VisualZone.CAVE:
+	elif zone == VisualZone.CAVE_ZONE:
 		category = "rocks"
 	elif neighbors >= 3:
 		var roll = rng.randf()
@@ -1357,10 +1791,12 @@ func _remove_test_arena():
 			node.queue_free()
 
 func _register_visual_zones():
-	visual_zone_cells.clear()
-	visual_zone_defs.clear()
-	_register_visual_zone("cave_core", VisualZone.CAVE, cave_cells.keys())
-	_register_visual_zone("old_rooms", VisualZone.ARCHIVE, room_cells.keys())
+	_register_visual_zone("cave_core", VisualZone.CAVE_ZONE, cave_cells.keys())
+	var story_room_cells: Array[Vector2i] = []
+	for cell in room_cells.keys():
+		if not visual_zone_cells.has(cell):
+			story_room_cells.append(cell)
+	_register_visual_zone("story_rooms", VisualZone.STRANGE_ROOM, story_room_cells)
 
 func _register_visual_zone(zone_name: String, zone_type: int, cells: Array):
 	if cells.is_empty():
@@ -1373,7 +1809,15 @@ func _register_visual_zone(zone_name: String, zone_type: int, cells: Array):
 		visual_zone_cells[cell] = zone_type
 
 func _get_visual_zone(cell: Vector2i) -> int:
-	return int(visual_zone_cells.get(cell, VisualZone.DEFAULT))
+	return int(visual_zone_cells.get(cell, VisualZone.NORMAL_MAZE))
+
+func _get_adjacent_visual_zone(cell: Vector2i) -> int:
+	var best = _get_visual_zone(cell)
+	for dir in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var zone = _get_visual_zone(cell + dir)
+		if zone != VisualZone.NORMAL_MAZE:
+			return zone
+	return best
 
 func _wall_touches_zone(cell: Vector2i, zone_type: int) -> bool:
 	for dir in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
