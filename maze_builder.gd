@@ -13,6 +13,18 @@ const KEY_MARKER = "K"
 const NOTE_MARKER = "N"
 const TORCH_MODEL_PATH = "res://assets/props/torch/burning_torch.glb"
 const PROP_MODEL_SCRIPT = preload("res://prop_model.gd")
+const DUNGEON_WALL_MODEL = "res://assets/Dungeon/walls.glb"
+const DUNGEON_CORNER_MODEL = "res://assets/Dungeon/corners.glb"
+const DUNGEON_FLOOR_MODEL = "res://assets/Dungeon/floor.glb"
+const DUNGEON_ARCH_MODEL = "res://assets/Dungeon/arch.glb"
+const DUNGEON_DOOR_MODEL = "res://assets/Dungeon/door.glb"
+const DUNGEON_COLUMN_MODEL = "res://assets/Dungeon/column.glb"
+const CAVE_WALL_MODEL = "res://assets/Cave/cave_wall.glb"
+const CAVE_FLOOR_MODEL = "res://assets/Cave/cave_floor.glb"
+const CAVE_CORRIDOR_MODEL = "res://assets/Cave/cave_corridor.glb"
+const CAVE_ROCK_WALL_MODEL = "res://assets/Cave/rock_wall.glb"
+const CAVE_ROCK_ARCH_MODEL = "res://assets/Cave/rock_arch.glb"
+const CAVE_ROCK_CLUSTER_MODEL = "res://assets/Cave/rock_cluster.glb"
 
 enum VisualZone { NORMAL_MAZE, TIGHT_START, BRANCHING_MID, LIBRARY_ZONE, CAVE_ZONE, MIRROR_ZONE, ARCHIVE_ZONE, STRANGE_BUILDING_ZONE, LANDMARK_ROOM }
 
@@ -102,7 +114,6 @@ func _ready():
 	_generate_maze()
 	_build_geometry()
 	_build_environment_props()
-	_build_obstacles()
 	_build_lights()
 	_place_player()
 	_place_pickups()
@@ -562,13 +573,22 @@ func _carve_room(rows: Array[String], center: Vector2i, half_w: int, half_h: int
 			room_cells[pos] = true
 
 func _carve_cave_sector(rows: Array[String], rng: RandomNumberGenerator):
-	var desired_center = Vector2i(int(rows[0].length() * 0.62), int(rows.size() * 0.55))
-	var center = _find_reachable_cell_near(rows, desired_center, {}, 4)
-	if center == start_grid:
-		center = desired_center
+	var distances = _get_distance_map(rows, start_grid)
+	var far_distance = 0
+	for value in distances.values():
+		far_distance = max(far_distance, int(value))
+	var reserved := {}
+	reserved[start_grid] = true
+	reserved[exit_grid] = true
+	for zone_center in special_zone_centers:
+		reserved[zone_center] = true
+	var center = _choose_zone_center(rows, distances, int(far_distance * 0.48), int(far_distance * 0.90), reserved, rng, 8.0)
+	if center == Vector2i(-1, -1):
+		var desired_center = Vector2i(int(rows[0].length() * 0.62), int(rows.size() * 0.55))
+		center = _find_reachable_cell_near(rows, desired_center, reserved, 4)
 
-	var radius_x = 2
-	var radius_y = 2
+	var radius_x = 3
+	var radius_y = 3
 	var min_x = clamp(center.x - radius_x, 2, rows[0].length() - 4)
 	var max_x = clamp(center.x + radius_x, 3, rows[0].length() - 3)
 	var min_y = clamp(center.y - radius_y, 2, rows.size() - 4)
@@ -629,6 +649,9 @@ func _carve_cave_pocket(rows: Array[String], center: Vector2i, rng: RandomNumber
 
 func _carve_cave_cell(rows: Array[String], cell: Vector2i):
 	if cell == start_grid or cell == exit_grid:
+		return
+	var existing_zone = _get_visual_zone(cell)
+	if existing_zone != VisualZone.NORMAL_MAZE and existing_zone != VisualZone.TIGHT_START and existing_zone != VisualZone.BRANCHING_MID and existing_zone != VisualZone.CAVE_ZONE:
 		return
 	_set_cell(rows, cell, ROOM)
 	room_cells[cell] = true
@@ -741,16 +764,24 @@ func _expand_special_zone_corridors(rows: Array[String]):
 		var zone = _get_visual_zone(center)
 		if not _is_special_route_zone(zone):
 			continue
+		var max_zone_distance = 10 if zone == VisualZone.CAVE_ZONE else 3
 		var queue: Array[Vector2i] = [center]
 		var distances := {}
 		distances[center] = 0
 		while not queue.is_empty():
 			var cell = queue.pop_front()
 			var distance = int(distances[cell])
-			if distance > 7:
+			if distance > max_zone_distance:
 				continue
 			if cell != start_grid and cell != exit_grid:
+				var existing_zone = _get_visual_zone(cell)
+				if zone == VisualZone.CAVE_ZONE and existing_zone != VisualZone.CAVE_ZONE and _is_special_route_zone(existing_zone):
+					continue
+				if zone != VisualZone.CAVE_ZONE and existing_zone == VisualZone.CAVE_ZONE:
+					continue
 				visual_zone_cells[cell] = zone
+				if zone == VisualZone.CAVE_ZONE:
+					cave_cells[cell] = true
 			for next_cell in _get_path_neighbors_list(rows, cell):
 				if distances.has(next_cell):
 					continue
@@ -1048,20 +1079,33 @@ func _validate_generated_map(rows: Array[String]):
 
 func _update_generation_stats(rows: Array[String]):
 	var walkable_count = 0
-	var special_count = 0
+	var dungeon_count = 0
+	var cave_count = 0
+	var special_room_count = 0
 	for y in range(1, rows.size() - 1):
 		for x in range(1, rows[0].length() - 1):
 			var cell = Vector2i(x, y)
 			if not _is_walkable_cell(rows, cell):
 				continue
 			walkable_count += 1
-			if _is_special_route_zone(_get_visual_zone(cell)):
-				special_count += 1
-	var special_percent = 0.0 if walkable_count == 0 else float(special_count) / float(walkable_count) * 100.0
+			var zone = _get_visual_zone(cell)
+			if zone == VisualZone.CAVE_ZONE:
+				cave_count += 1
+			elif zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.MIRROR_ZONE or zone == VisualZone.ARCHIVE_ZONE or zone == VisualZone.STRANGE_BUILDING_ZONE or zone == VisualZone.LANDMARK_ROOM:
+				special_room_count += 1
+			else:
+				dungeon_count += 1
+	var dungeon_percent = 0.0 if walkable_count == 0 else float(dungeon_count) / float(walkable_count) * 100.0
+	var cave_percent = 0.0 if walkable_count == 0 else float(cave_count) / float(walkable_count) * 100.0
+	var special_percent = 0.0 if walkable_count == 0 else float(special_room_count) / float(walkable_count) * 100.0
 	generation_stats = {
 		"walkable_cells": walkable_count,
-		"special_zone_cells": special_count,
-		"special_zone_percent": special_percent,
+		"dungeon_cells": dungeon_count,
+		"dungeon_percent": dungeon_percent,
+		"cave_cells": cave_count,
+		"cave_percent": cave_percent,
+		"special_room_cells": special_room_count,
+		"special_room_percent": special_percent,
 		"large_room_count": _count_large_open_room_candidates(rows),
 		"route_sequence": _get_route_zone_sequence(rows),
 		"zone_count": visual_zone_defs.size(),
@@ -1131,17 +1175,6 @@ func _build_geometry():
 	_maze_root.name = "GeneratedMaze"
 	add_child(_maze_root)
 
-	var wall_material = _create_stone_material("res://assets/wall_texture 1", Color(0.67, 0.66, 0.61), wall_uv_scale, true, 0.65)
-	var floor_material = _create_stone_material("res://assets/wall texture 2", Color(0.48, 0.46, 0.40), floor_uv_scale, false, 0.38)
-	var cave_material = _create_stone_material("res://assets/wall_texture 1", Color(0.38, 0.39, 0.36), wall_uv_scale * 0.85, false, 0.75)
-	var wall_materials = _create_surface_material_variants(WALL_SURFACE_SOURCES, wall_material, wall_uv_scale)
-	var cave_materials = _create_surface_material_variants(WALL_SURFACE_SOURCES, cave_material, wall_uv_scale * 0.82)
-	var floor_materials = _create_surface_material_variants(FLOOR_SURFACE_SOURCES, floor_material, floor_uv_scale)
-	var detail_material = _create_emissive_material(Color(0.24, 0.22, 0.19), Color(0.02, 0.012, 0.006), 0.02)
-	detail_material.roughness = 1.0
-	var wall_detail_material = _create_plain_material(Color(0.31, 0.30, 0.27), 1.0)
-	var wall_shadow_material = _create_plain_material(Color(0.12, 0.11, 0.10), 1.0)
-
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
 	var floor_body = StaticBody3D.new()
@@ -1149,16 +1182,9 @@ func _build_geometry():
 	_maze_root.add_child(floor_body)
 	floor_body.position = grid_to_world(Vector2i(int(grid_w / 2), int(grid_h / 2)), -0.18)
 
-	var floor_mesh = MeshInstance3D.new()
-	var floor_box = BoxMesh.new()
-	floor_box.size = Vector3(grid_w * cell_size, 0.36, grid_h * cell_size)
-	floor_box.material = _pick_material_variant(Vector2i.ZERO, floor_materials, 7)
-	floor_mesh.mesh = floor_box
-	floor_body.add_child(floor_mesh)
-
 	var floor_collision = CollisionShape3D.new()
 	var floor_shape = BoxShape3D.new()
-	floor_shape.size = floor_box.size
+	floor_shape.size = Vector3(grid_w * cell_size, 0.36, grid_h * cell_size)
 	floor_collision.shape = floor_shape
 	floor_body.add_child(floor_collision)
 
@@ -1170,18 +1196,16 @@ func _build_geometry():
 			var cell = Vector2i(x, y)
 			var marker = radar_grid[y].substr(x, 1)
 			if marker == WALL:
-				_add_wall(cell, _pick_zone_wall_material(cell, wall_materials, cave_materials), wall_detail_material, wall_shadow_material, height_rng)
+				_add_modular_wall_cell(cell, height_rng)
 			else:
+				_add_modular_floor_cell(cell, height_rng)
 				if zone_entrance_cells.has(cell):
-					_add_zone_transition_arch(cell, _pick_zone_room_material(cell, wall_materials, cave_materials), height_rng)
+					_add_modular_zone_transition(cell, height_rng)
 				if room_cells.has(cell):
 					if _should_add_room_ruin(cell):
-						_add_room_ruin(cell, _pick_zone_room_material(cell, wall_materials, cave_materials), height_rng)
+						_add_room_ruin(cell, null, height_rng)
 				if cave_cells.has(cell) and _should_add_cave_feature(cell):
-					_add_cave_feature(cell, _pick_zone_room_material(cell, wall_materials, cave_materials), height_rng)
-
-				if _should_add_floor_detail(cell):
-					_add_floor_detail(cell, detail_material, height_rng)
+					_add_cave_feature(cell, null, height_rng)
 
 func _create_surface_material_variants(sources: Array, fallback: Material, uv_scale: Vector3) -> Array[Material]:
 	var variants: Array[Material] = [fallback]
@@ -1190,6 +1214,188 @@ func _create_surface_material_variants(sources: Array, fallback: Material, uv_sc
 		if material:
 			variants.append(material)
 	return variants
+
+func _add_modular_floor_cell(cell: Vector2i, rng: RandomNumberGenerator):
+	var zone = _get_visual_zone(cell)
+	var model_path = CAVE_CORRIDOR_MODEL if zone == VisualZone.CAVE_ZONE and rng.randf() < 0.45 else CAVE_FLOOR_MODEL if zone == VisualZone.CAVE_ZONE else DUNGEON_FLOOR_MODEL
+	_add_scene_module(
+		"Floor_%d_%d" % [cell.x, cell.y],
+		model_path,
+		grid_to_world(cell, 0.0),
+		0.0,
+		cell_size * 0.98,
+		0.0
+	)
+
+func _add_modular_wall_cell(cell: Vector2i, rng: RandomNumberGenerator):
+	var exposed_dirs = _get_exposed_wall_dirs(cell)
+	if exposed_dirs.is_empty():
+		return
+	var touches_cave = _wall_touches_zone(cell, VisualZone.CAVE_ZONE)
+	var body = StaticBody3D.new()
+	body.name = "WallCollision_%d_%d" % [cell.x, cell.y]
+	body.position = grid_to_world(cell, max_wall_height * 0.5)
+	_maze_root.add_child(body)
+
+	var collision = CollisionShape3D.new()
+	var shape = BoxShape3D.new()
+	shape.size = Vector3(cell_size, max_wall_height, cell_size)
+	collision.shape = shape
+	body.add_child(collision)
+
+	for dir in exposed_dirs:
+		var wall_model = CAVE_ROCK_WALL_MODEL if touches_cave and rng.randf() < 0.45 else CAVE_WALL_MODEL if touches_cave else DUNGEON_WALL_MODEL
+		var face_position = grid_to_world(cell, 0.0) + Vector3(dir.x, 0.0, dir.y) * (cell_size * 0.38)
+		_add_scene_module(
+			("CaveWall" if touches_cave else "DungeonWall") + "_%d_%d" % [cell.x, cell.y],
+			wall_model,
+			face_position,
+			_get_wall_yaw_for_dir(dir),
+			cell_size * 1.02,
+			0.0
+		)
+
+	if exposed_dirs.size() >= 2:
+		var corner_model = CAVE_ROCK_WALL_MODEL if touches_cave else DUNGEON_CORNER_MODEL
+		_add_scene_module(
+			("CaveCorner" if touches_cave else "DungeonCorner") + "_%d_%d" % [cell.x, cell.y],
+			corner_model,
+			grid_to_world(cell, 0.0),
+			_get_corner_yaw(exposed_dirs),
+			cell_size * 1.02,
+			0.0
+		)
+
+func _add_modular_zone_transition(cell: Vector2i, rng: RandomNumberGenerator):
+	var zone = _get_visual_zone(cell)
+	var model_path = DUNGEON_ARCH_MODEL
+	if zone == VisualZone.CAVE_ZONE:
+		model_path = CAVE_ROCK_ARCH_MODEL
+	elif zone == VisualZone.STRANGE_BUILDING_ZONE or zone == VisualZone.ARCHIVE_ZONE:
+		model_path = DUNGEON_DOOR_MODEL
+	var yaw = _get_transition_yaw(cell, rng)
+	_add_scene_module(
+		"ZoneTransition_%s_%d_%d" % [_get_zone_display_name(zone).replace(" ", "_"), cell.x, cell.y],
+		model_path,
+		grid_to_world(cell, 0.0),
+		yaw,
+		cell_size * 0.86,
+		0.0
+	)
+	if zone != VisualZone.CAVE_ZONE and rng.randf() < 0.55:
+		_add_column_pair(cell, yaw, rng)
+
+func _add_column_pair(cell: Vector2i, yaw: float, rng: RandomNumberGenerator):
+	var right = Vector3(cos(yaw), 0.0, -sin(yaw))
+	for side in [-1.0, 1.0]:
+		_add_scene_module(
+			"EntranceColumn_%d_%d" % [cell.x, cell.y],
+			DUNGEON_COLUMN_MODEL,
+			grid_to_world(cell, 0.0) + right * side * cell_size * 0.32,
+			yaw + rng.randf_range(-0.08, 0.08),
+			cell_size * 0.42,
+			0.0
+		)
+
+func _get_wall_yaw_for_dir(dir: Vector2i) -> float:
+	if dir == Vector2i.LEFT:
+		return PI * 0.5
+	if dir == Vector2i.RIGHT:
+		return -PI * 0.5
+	if dir == Vector2i.DOWN:
+		return PI
+	return 0.0
+
+func _get_corner_yaw(dirs: Array[Vector2i]) -> float:
+	var has_left = dirs.has(Vector2i.LEFT)
+	var has_right = dirs.has(Vector2i.RIGHT)
+	var has_up = dirs.has(Vector2i.UP)
+	var has_down = dirs.has(Vector2i.DOWN)
+	if has_right and has_down:
+		return PI
+	if has_left and has_down:
+		return PI * 0.5
+	if has_left and has_up:
+		return 0.0
+	if has_right and has_up:
+		return -PI * 0.5
+	return 0.0
+
+func _get_transition_yaw(cell: Vector2i, rng: RandomNumberGenerator) -> float:
+	var axis = _get_corridor_axis(radar_grid, cell)
+	if axis == "x":
+		return PI * 0.5
+	if axis == "z":
+		return 0.0
+	for dir in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		if _is_walkable_cell(radar_grid, cell + dir):
+			return _get_wall_yaw_for_dir(dir)
+	return rng.randf_range(0.0, TAU)
+
+func _add_scene_module(node_name: String, model_path: String, position: Vector3, yaw: float, target_footprint: float, ground_offset: float) -> Node3D:
+	var scene = load(model_path) as PackedScene
+	if not scene:
+		push_warning("Could not load maze module: %s" % model_path)
+		return null
+	var module = scene.instantiate() as Node3D
+	if not module:
+		push_warning("Maze module is not Node3D: %s" % model_path)
+		return null
+	module.name = node_name
+	_maze_root.add_child(module)
+	module.global_position = position
+	module.rotation.y = yaw
+	_fit_module_to_grid(module, position, target_footprint, ground_offset)
+	_prepare_module_visuals(module)
+	return module
+
+func _fit_module_to_grid(module: Node3D, position: Vector3, target_footprint: float, ground_offset: float):
+	var bounds = _get_visual_bounds(module)
+	if bounds.size.length() <= 0.01:
+		return
+	var footprint = max(bounds.size.x, bounds.size.z)
+	if footprint > 0.01 and target_footprint > 0.0:
+		module.scale *= target_footprint / footprint
+	bounds = _get_visual_bounds(module)
+	var bounds_center = bounds.position + bounds.size * 0.5
+	module.global_position += Vector3(position.x - bounds_center.x, position.y + ground_offset - bounds.position.y, position.z - bounds_center.z)
+
+func _prepare_module_visuals(node: Node):
+	if node is GeometryInstance3D:
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	for child in node.get_children():
+		_prepare_module_visuals(child)
+
+func _get_visual_bounds(root: Node3D) -> AABB:
+	var has_bounds = false
+	var combined := AABB()
+	for mesh in _collect_meshes(root):
+		var transformed = _transform_aabb(mesh.global_transform, mesh.get_aabb())
+		if has_bounds:
+			combined = combined.merge(transformed)
+		else:
+			combined = transformed
+			has_bounds = true
+	return combined
+
+func _collect_meshes(root: Node) -> Array[MeshInstance3D]:
+	var meshes: Array[MeshInstance3D] = []
+	if root is MeshInstance3D:
+		meshes.append(root)
+	for child in root.get_children():
+		meshes.append_array(_collect_meshes(child))
+	return meshes
+
+func _transform_aabb(transform: Transform3D, box: AABB) -> AABB:
+	var min_v = Vector3(INF, INF, INF)
+	var max_v = Vector3(-INF, -INF, -INF)
+	for x in [box.position.x, box.position.x + box.size.x]:
+		for y in [box.position.y, box.position.y + box.size.y]:
+			for z in [box.position.z, box.position.z + box.size.z]:
+				var point = transform * Vector3(x, y, z)
+				min_v = min_v.min(point)
+				max_v = max_v.max(point)
+	return AABB(min_v, max_v - min_v)
 
 func _create_imported_surface_material(source: Dictionary, uv_scale: Vector3) -> StandardMaterial3D:
 	var folder = str(source.get("folder", ""))
@@ -1314,142 +1520,6 @@ func _material_at(materials: Array[Material], index: int) -> Material:
 		return null
 	return materials[clamp(index, 0, materials.size() - 1)]
 
-func _add_wall(grid_position: Vector2i, material: Material, detail_material: Material, shadow_material: Material, height_rng: RandomNumberGenerator):
-	var w_height = height_rng.randf_range(min_wall_height, max_wall_height)
-
-	var body = StaticBody3D.new()
-	body.name = "Wall_%d_%d" % [grid_position.x, grid_position.y]
-	body.position = grid_to_world(grid_position, w_height * 0.5)
-	_maze_root.add_child(body)
-
-	var mesh_instance = MeshInstance3D.new()
-	mesh_instance.rotation.y = height_rng.randf_range(-0.035, 0.035)
-	var mesh = BoxMesh.new()
-	mesh.size = Vector3(cell_size * height_rng.randf_range(0.985, 1.015), w_height, cell_size * height_rng.randf_range(0.985, 1.015))
-	mesh.subdivide_width = 4
-	mesh.subdivide_height = 5
-	mesh.subdivide_depth = 4
-	mesh.material = material
-	mesh_instance.mesh = mesh
-	body.add_child(mesh_instance)
-
-	var collision = CollisionShape3D.new()
-	var shape = BoxShape3D.new()
-	shape.size = Vector3(cell_size, w_height, cell_size)
-	collision.shape = shape
-	body.add_child(collision)
-	_add_wall_surface_details(body, grid_position, w_height, detail_material, shadow_material, height_rng)
-
-func _add_wall_surface_details(body: Node3D, grid_position: Vector2i, wall_height: float, detail_material: Material, shadow_material: Material, rng: RandomNumberGenerator):
-	var exposed_dirs = _get_exposed_wall_dirs(grid_position)
-	if exposed_dirs.is_empty():
-		return
-
-	for dir in exposed_dirs:
-		var score = abs(grid_position.x * 61 + grid_position.y * 97 + dir.x * 13 + dir.y * 29 + maze_seed) % 100
-		if score >= 16:
-			continue
-		var style = score % 5
-		var material = shadow_material if style == 1 else detail_material
-		_add_wall_face_detail(body, dir, wall_height, material, rng, style)
-
-func _add_wall_face_detail(body: Node3D, dir: Vector2i, wall_height: float, material: Material, rng: RandomNumberGenerator, style: int):
-	if style == 4:
-		_add_arch_placeholder(body, dir, wall_height, material, rng)
-		return
-	var detail = MeshInstance3D.new()
-	var names = ["wall_bump", "wall_crack_plate", "wall_pillar", "broken_wall_piece"]
-	detail.name = names[clamp(style, 0, names.size() - 1)]
-	var mesh = BoxMesh.new()
-	var thickness = 0.045 if style == 1 else rng.randf_range(0.08, 0.18)
-	var detail_height = rng.randf_range(1.1, 2.6)
-	var detail_width = rng.randf_range(1.2, 2.9)
-	if style == 2:
-		detail_height = rng.randf_range(2.6, 4.2)
-		detail_width = rng.randf_range(0.26, 0.42)
-	elif style == 3:
-		detail_height = rng.randf_range(0.18, 0.36)
-		detail_width = rng.randf_range(2.0, 4.6)
-
-	if dir.x != 0:
-		mesh.size = Vector3(thickness, detail_height, detail_width)
-		detail.position = Vector3(dir.x * (cell_size * 0.5 + thickness * 0.35), rng.randf_range(-wall_height * 0.20, wall_height * 0.18), rng.randf_range(-cell_size * 0.22, cell_size * 0.22))
-	else:
-		mesh.size = Vector3(detail_width, detail_height, thickness)
-		detail.position = Vector3(rng.randf_range(-cell_size * 0.22, cell_size * 0.22), rng.randf_range(-wall_height * 0.20, wall_height * 0.18), dir.y * (cell_size * 0.5 + thickness * 0.35))
-	mesh.material = material
-	detail.mesh = mesh
-	body.add_child(detail)
-
-func _add_arch_placeholder(body: Node3D, dir: Vector2i, wall_height: float, material: Material, rng: RandomNumberGenerator):
-	var root = Node3D.new()
-	root.name = "arch_placeholder"
-	body.add_child(root)
-	var face_offset = cell_size * 0.5 + 0.08
-	var width = rng.randf_range(1.8, 2.4)
-	var post_height = rng.randf_range(2.0, 2.8)
-	var top_height = 0.28
-	var pieces = [
-		{"offset": -width * 0.5, "size": Vector3(0.20, post_height, 0.16), "y": post_height * 0.5 - wall_height * 0.16},
-		{"offset": width * 0.5, "size": Vector3(0.20, post_height, 0.16), "y": post_height * 0.5 - wall_height * 0.16},
-		{"offset": 0.0, "size": Vector3(width + 0.45, top_height, 0.18), "y": post_height + top_height * 0.5 - wall_height * 0.16},
-	]
-	for piece in pieces:
-		var mesh_instance = MeshInstance3D.new()
-		mesh_instance.name = "arch_piece"
-		var mesh = BoxMesh.new()
-		mesh.material = material
-		var piece_size: Vector3 = piece["size"]
-		var piece_offset = float(piece["offset"])
-		var piece_y = float(piece["y"])
-		if dir.x != 0:
-			mesh.size = Vector3(piece_size.z, piece_size.y, piece_size.x)
-			mesh_instance.position = Vector3(dir.x * face_offset, piece_y, piece_offset)
-		else:
-			mesh.size = piece_size
-			mesh_instance.position = Vector3(piece_offset, piece_y, dir.y * face_offset)
-		mesh_instance.mesh = mesh
-		root.add_child(mesh_instance)
-
-func _add_zone_transition_arch(cell: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var root = Node3D.new()
-	root.name = "ZoneEntrance_%d_%d" % [cell.x, cell.y]
-	root.position = grid_to_world(cell, 0.0)
-	_maze_root.add_child(root)
-
-	var axis = _get_corridor_axis(radar_grid, cell)
-	if axis == "":
-		axis = "x" if rng.randf() < 0.5 else "z"
-	var side_axis_is_z = axis == "x"
-	var post_offset = cell_size * 0.34
-	var post_height = 2.55
-	var post_size = Vector3(0.28, post_height, 0.36)
-	var lintel_size = Vector3(cell_size * 0.76, 0.32, 0.34)
-	if side_axis_is_z:
-		lintel_size = Vector3(0.34, 0.32, cell_size * 0.76)
-
-	for side in [-1.0, 1.0]:
-		var post = MeshInstance3D.new()
-		post.name = "zone_door_post"
-		var post_mesh = BoxMesh.new()
-		post_mesh.material = material
-		post_mesh.size = post_size
-		if side_axis_is_z:
-			post.position = Vector3(0.0, post_height * 0.5, side * post_offset)
-		else:
-			post.position = Vector3(side * post_offset, post_height * 0.5, 0.0)
-		post.mesh = post_mesh
-		root.add_child(post)
-
-	var lintel = MeshInstance3D.new()
-	lintel.name = "zone_door_lintel"
-	var lintel_mesh = BoxMesh.new()
-	lintel_mesh.material = material
-	lintel_mesh.size = lintel_size
-	lintel.mesh = lintel_mesh
-	lintel.position.y = post_height + 0.18
-	root.add_child(lintel)
-
 func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
 	var root = Node3D.new()
 	root.name = "Landmark_%d_%d" % [grid_position.x, grid_position.y]
@@ -1513,61 +1583,27 @@ func _should_add_room_ruin(cell: Vector2i) -> bool:
 	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 7 == 0
 
 func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var root = Node3D.new()
-	root.name = "InnerRuin_%d_%d" % [grid_position.x, grid_position.y]
-	root.position = grid_to_world(grid_position, 0.0)
-	root.rotation.y = rng.randf_range(0.0, TAU)
-	_maze_root.add_child(root)
-
 	var zone = _get_visual_zone(grid_position)
 	if zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.ARCHIVE_ZONE:
-		_add_shelf_placeholder(root, material, rng, zone)
+		_add_shelf_placeholder(grid_position, rng, zone)
 		return
 	if zone == VisualZone.STRANGE_BUILDING_ZONE:
-		_add_partition_placeholder(root, material, rng)
+		_add_partition_placeholder(grid_position, rng)
 		return
+	if zone == VisualZone.LANDMARK_ROOM and rng.randf() < 0.55:
+		_add_scene_module("RoomColumn_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_COLUMN_MODEL, grid_to_world(grid_position, 0.0), rng.randf_range(0.0, TAU), cell_size * 0.44, 0.0)
+	else:
+		_add_scene_module("RoomPartition_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0), rng.randf_range(0.0, TAU), cell_size * 0.68, 0.0)
 
-	var wall = MeshInstance3D.new()
-	var wall_mesh = BoxMesh.new()
-	wall_mesh.size = Vector3(cell_size * rng.randf_range(0.28, 0.42), rng.randf_range(1.2, 2.5), 0.34)
-	wall_mesh.material = material
-	wall.mesh = wall_mesh
-	wall.position = Vector3(rng.randf_range(-1.3, 1.3), wall_mesh.size.y * 0.5, rng.randf_range(-1.3, 1.3))
-	root.add_child(wall)
+func _add_shelf_placeholder(grid_position: Vector2i, rng: RandomNumberGenerator, zone: int):
+	var offset = Vector3(rng.randf_range(-1.45, 1.45), 0.0, rng.randf_range(-1.45, 1.45))
+	var yaw = 0.0 if rng.randf() < 0.5 else PI * 0.5
+	var node_name = "ArchiveShelf_%d_%d" if zone == VisualZone.ARCHIVE_ZONE else "LibraryShelf_%d_%d"
+	_add_scene_module(node_name % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0) + offset, yaw, cell_size * 0.62, 0.0)
 
-	var pillar = MeshInstance3D.new()
-	var pillar_mesh = CylinderMesh.new()
-	pillar_mesh.top_radius = 0.22
-	pillar_mesh.bottom_radius = 0.32
-	pillar_mesh.height = rng.randf_range(1.6, 3.2)
-	pillar_mesh.radial_segments = 7
-	pillar_mesh.material = material
-	pillar.mesh = pillar_mesh
-	pillar.position = Vector3(rng.randf_range(-2.0, 2.0), pillar_mesh.height * 0.5, rng.randf_range(-2.0, 2.0))
-	root.add_child(pillar)
-
-func _add_shelf_placeholder(root: Node3D, material: Material, rng: RandomNumberGenerator, zone: int):
-	var shelf = MeshInstance3D.new()
-	shelf.name = "archive_shelf" if zone == VisualZone.ARCHIVE_ZONE else "library_bookshelf"
-	var mesh = BoxMesh.new()
-	var axis_x = rng.randf() < 0.5
-	mesh.size = Vector3(rng.randf_range(0.28, 0.42), rng.randf_range(1.9, 2.7), rng.randf_range(2.2, 3.4)) if axis_x else Vector3(rng.randf_range(2.2, 3.4), rng.randf_range(1.9, 2.7), rng.randf_range(0.28, 0.42))
-	mesh.material = material
-	shelf.mesh = mesh
-	shelf.position = Vector3(rng.randf_range(-1.9, 1.9), mesh.size.y * 0.5, rng.randf_range(-1.9, 1.9))
-	root.add_child(shelf)
-
-func _add_partition_placeholder(root: Node3D, material: Material, rng: RandomNumberGenerator):
-	var partition = MeshInstance3D.new()
-	partition.name = "building_partition"
-	var mesh = BoxMesh.new()
-	mesh.size = Vector3(rng.randf_range(0.24, 0.36), rng.randf_range(1.6, 2.25), rng.randf_range(1.7, 2.6))
-	if rng.randf() < 0.5:
-		mesh.size = Vector3(mesh.size.z, mesh.size.y, mesh.size.x)
-	mesh.material = material
-	partition.mesh = mesh
-	partition.position = Vector3(rng.randf_range(-1.5, 1.5), mesh.size.y * 0.5, rng.randf_range(-1.5, 1.5))
-	root.add_child(partition)
+func _add_partition_placeholder(grid_position: Vector2i, rng: RandomNumberGenerator):
+	var yaw = 0.0 if rng.randf() < 0.5 else PI * 0.5
+	_add_scene_module("BuildingPartition_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0), yaw, cell_size * 0.62, 0.0)
 
 func _should_add_cave_feature(cell: Vector2i) -> bool:
 	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
@@ -1575,61 +1611,11 @@ func _should_add_cave_feature(cell: Vector2i) -> bool:
 	return int(abs(cell.x * 47 + cell.y * 19 + maze_seed)) % 5 == 0
 
 func _add_cave_feature(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var root = Node3D.new()
-	root.name = "CaveRock_%d_%d" % [grid_position.x, grid_position.y]
-	root.position = grid_to_world(grid_position, 0.0)
-	root.rotation.y = rng.randf_range(0.0, TAU)
-	_maze_root.add_child(root)
-
-	var ceiling = MeshInstance3D.new()
-	var ceiling_mesh = BoxMesh.new()
-	ceiling_mesh.size = Vector3(rng.randf_range(2.6, 4.8), rng.randf_range(0.22, 0.55), rng.randf_range(2.4, 4.4))
-	ceiling_mesh.material = material
-	ceiling.mesh = ceiling_mesh
-	ceiling.position = Vector3(rng.randf_range(-0.8, 0.8), rng.randf_range(5.4, 6.8), rng.randf_range(-0.8, 0.8))
-	ceiling.rotation = Vector3(rng.randf_range(-0.10, 0.10), rng.randf_range(0.0, TAU), rng.randf_range(-0.08, 0.08))
-	root.add_child(ceiling)
-
-	var rock_count = rng.randi_range(1, 3)
-	for i in range(rock_count):
-		var rock = MeshInstance3D.new()
-		var rock_mesh = CylinderMesh.new()
-		rock_mesh.top_radius = rng.randf_range(0.08, 0.18)
-		rock_mesh.bottom_radius = rng.randf_range(0.24, 0.46)
-		rock_mesh.height = rng.randf_range(0.8, 1.9)
-		rock_mesh.radial_segments = 6
-		rock_mesh.material = material
-		rock.mesh = rock_mesh
-		var side_offset = Vector3(rng.randf_range(-2.45, 2.45), rock_mesh.height * 0.5, rng.randf_range(-2.45, 2.45))
-		rock.position = side_offset
-		rock.rotation.z = rng.randf_range(-0.16, 0.16)
-		root.add_child(rock)
+	var offset = Vector3(rng.randf_range(-1.8, 1.8), 0.0, rng.randf_range(-1.8, 1.8))
+	_add_scene_module("CaveRockCluster_%d_%d" % [grid_position.x, grid_position.y], CAVE_ROCK_CLUSTER_MODEL, grid_to_world(grid_position, 0.0) + offset, rng.randf_range(0.0, TAU), cell_size * rng.randf_range(0.42, 0.68), 0.0)
 
 func _should_add_floor_detail(cell: Vector2i) -> bool:
-	if cell.distance_to(start_grid) < 3.0 or cell.distance_to(exit_grid) < 2.0:
-		return false
-	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
-		return false
-	var chance_divisor = 12 if room_cells.has(cell) else 22
-	return int(abs(cell.x * 13 + cell.y * 29 + maze_seed)) % chance_divisor == 0
-
-func _add_floor_detail(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var root = Node3D.new()
-	root.name = "FloorDetail_%d_%d" % [grid_position.x, grid_position.y]
-	root.position = grid_to_world(grid_position, 0.0)
-	root.rotation.y = rng.randf_range(0.0, TAU)
-	_maze_root.add_child(root)
-
-	var pieces = rng.randi_range(1, 3)
-	for i in range(pieces):
-		var mesh_instance = MeshInstance3D.new()
-		var mesh = BoxMesh.new()
-		mesh.size = Vector3(rng.randf_range(0.22, 0.58), rng.randf_range(0.05, 0.16), rng.randf_range(0.20, 0.55))
-		mesh.material = material
-		mesh_instance.mesh = mesh
-		mesh_instance.position = Vector3(rng.randf_range(-2.25, 2.25), mesh.size.y * 0.5, rng.randf_range(-2.25, 2.25))
-		mesh_instance.rotation.y = rng.randf_range(0.0, TAU)
-		root.add_child(mesh_instance)
+	return false
 
 func _build_environment_props():
 	if not _maze_root or radar_grid.is_empty():
@@ -1854,104 +1840,6 @@ func _setup_flicker(light: Light3D):
 	if flicker_script:
 		light.set_script(flicker_script)
 
-func _build_obstacles():
-	var obs_rng = RandomNumberGenerator.new()
-	obs_rng.seed = maze_seed + 7777
-	var obstacle_material = _create_stone_material("res://assets/wall_texture 1", Color(0.62, 0.60, 0.55), wall_uv_scale, false, 0.45)
-	var used_cells := {}
-
-	for y in range(1, radar_grid.size() - 1):
-		for x in range(1, radar_grid[0].length() - 1):
-			var cell = Vector2i(x, y)
-			if _get_cell(radar_grid, cell) != PATH:
-				continue
-			if cell.distance_to(start_grid) < 5.0 or cell.distance_to(exit_grid) < 4.0:
-				continue
-			if _is_pickup_or_landmark_near(cell, 2):
-				continue
-			if _count_path_neighbors(radar_grid, cell) != 2:
-				continue
-			if not _has_straight_corridor(radar_grid, cell):
-				continue
-			if obs_rng.randf() > obstacle_chance:
-				continue
-			if _has_used_obstacle_neighbor(used_cells, cell):
-				continue
-
-			used_cells[cell] = true
-			if obs_rng.randf() < 0.45:
-				_add_crouch_beam(cell, obstacle_material, obs_rng)
-			else:
-				_add_side_rubble(cell, obstacle_material, obs_rng)
-
-func _add_crouch_beam(cell: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var axis = _get_corridor_axis(radar_grid, cell)
-	if axis == "":
-		return
-
-	var body = StaticBody3D.new()
-	body.name = "CrouchBeam_%d_%d" % [cell.x, cell.y]
-	body.position = grid_to_world(cell, 2.02)
-	_maze_root.add_child(body)
-
-	var beam_size = Vector3(cell_size * 1.08, 0.72, 1.45)
-	if axis == "x":
-		beam_size = Vector3(1.45, 0.72, cell_size * 1.08)
-	body.rotation.y = rng.randf_range(-0.05, 0.05)
-
-	var mesh_instance = MeshInstance3D.new()
-	var mesh = BoxMesh.new()
-	mesh.size = beam_size
-	mesh.subdivide_width = 3
-	mesh.subdivide_height = 2
-	mesh.subdivide_depth = 3
-	mesh.material = material
-	mesh_instance.mesh = mesh
-	body.add_child(mesh_instance)
-
-	var collision = CollisionShape3D.new()
-	var shape = BoxShape3D.new()
-	shape.size = beam_size
-	collision.shape = shape
-	body.add_child(collision)
-
-func _add_side_rubble(cell: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var axis = _get_corridor_axis(radar_grid, cell)
-	if axis == "":
-		return
-
-	var side = -1.0 if rng.randf() < 0.5 else 1.0
-	var offset = Vector3.ZERO
-	if axis == "x":
-		offset.z = side * rng.randf_range(2.15, 2.65)
-	else:
-		offset.x = side * rng.randf_range(2.15, 2.65)
-
-	var body = StaticBody3D.new()
-	body.name = "SideRubble_%d_%d" % [cell.x, cell.y]
-	body.position = grid_to_world(cell, 0.45) + offset
-	body.rotation.y = rng.randf_range(0.0, TAU)
-	_maze_root.add_child(body)
-
-	var mesh_instance = MeshInstance3D.new()
-	var mesh = BoxMesh.new()
-	var rock_x = rng.randf_range(1.25, 1.85)
-	var rock_y = rng.randf_range(0.55, 0.95)
-	var rock_z = rng.randf_range(1.25, 1.85)
-	mesh.size = Vector3(rock_x, rock_y, rock_z)
-	mesh.subdivide_width = 2
-	mesh.subdivide_height = 2
-	mesh.subdivide_depth = 2
-	mesh.material = material
-	mesh_instance.mesh = mesh
-	body.add_child(mesh_instance)
-
-	var collision = CollisionShape3D.new()
-	var shape = BoxShape3D.new()
-	shape.size = Vector3(rock_x * 0.72, rock_y, rock_z * 0.72)
-	collision.shape = shape
-	body.add_child(collision)
-
 func _place_player():
 	var player = get_node_or_null(player_path)
 	if not player:
@@ -2041,11 +1929,6 @@ func _remove_test_arena():
 
 func _register_visual_zones():
 	_register_visual_zone("cave_core", VisualZone.CAVE_ZONE, cave_cells.keys())
-	var story_room_cells: Array[Vector2i] = []
-	for cell in room_cells.keys():
-		if not visual_zone_cells.has(cell):
-			story_room_cells.append(cell)
-	_register_visual_zone("story_niches", VisualZone.LANDMARK_ROOM, story_room_cells)
 
 func _register_visual_zone(zone_name: String, zone_type: int, cells: Array):
 	if cells.is_empty():
@@ -2411,29 +2294,6 @@ func _grid_distance_squared(a: Vector2i, b: Vector2i) -> float:
 	var dx = float(a.x - b.x)
 	var dy = float(a.y - b.y)
 	return dx * dx + dy * dy
-
-func _is_pickup_or_landmark_near(cell: Vector2i, radius: int) -> bool:
-	for pickup_cell in pickup_cells.values():
-		if cell.distance_to(pickup_cell) <= float(radius):
-			return true
-	for landmark_cell in landmark_cells:
-		if cell.distance_to(landmark_cell) <= float(radius):
-			return true
-	return false
-
-func _has_used_obstacle_neighbor(used_cells: Dictionary, cell: Vector2i) -> bool:
-	for y in range(-1, 2):
-		for x in range(-1, 2):
-			if used_cells.has(cell + Vector2i(x, y)):
-				return true
-	return false
-
-func _has_straight_corridor(rows: Array[String], cell: Vector2i) -> bool:
-	var left = _is_walkable_cell(rows, cell + Vector2i.LEFT)
-	var right = _is_walkable_cell(rows, cell + Vector2i.RIGHT)
-	var up = _is_walkable_cell(rows, cell + Vector2i.UP)
-	var down = _is_walkable_cell(rows, cell + Vector2i.DOWN)
-	return (left and right and not up and not down) or (up and down and not left and not right)
 
 func _get_corridor_axis(rows: Array[String], cell: Vector2i) -> String:
 	var left = _is_walkable_cell(rows, cell + Vector2i.LEFT)
