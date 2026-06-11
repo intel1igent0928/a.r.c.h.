@@ -1,4 +1,4 @@
-[gd_scene load_steps=42 format=3 uid="uid://kvt561sck0y0"]
+[gd_scene load_steps=54 format=3 uid="uid://kvt561sck0y0"]
 
 [ext_resource type="Script" path="res://player.gd" id="1_player"]
 [ext_resource type="Script" path="res://interaction_system.gd" id="3_interact"]
@@ -15,6 +15,18 @@
 [ext_resource type="Script" path="res://atmosphere.gd" id="17_atmosphere"]
 [ext_resource type="Script" path="res://prop_model.gd" id="19_prop"]
 [ext_resource type="Script" path="res://handheld_flashlight.gd" id="20_handheld"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/walls.glb" id="21_dungeon_walls"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/corners.glb" id="22_dungeon_corners"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/floor.glb" id="23_dungeon_floor"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/arch.glb" id="24_dungeon_arch"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/door.glb" id="25_dungeon_door"]
+[ext_resource type="PackedScene" path="res://assets/Dungeon/column.glb" id="26_dungeon_column"]
+[ext_resource type="PackedScene" path="res://assets/Cave/cave_wall.glb" id="27_cave_wall"]
+[ext_resource type="PackedScene" path="res://assets/Cave/cave_floor.glb" id="28_cave_floor"]
+[ext_resource type="PackedScene" path="res://assets/Cave/cave_corridor.glb" id="29_cave_corridor"]
+[ext_resource type="PackedScene" path="res://assets/Cave/rock_wall.glb" id="30_rock_wall"]
+[ext_resource type="PackedScene" path="res://assets/Cave/rock_arch.glb" id="31_rock_arch"]
+[ext_resource type="PackedScene" path="res://assets/Cave/rock_cluster.glb" id="32_rock_cluster"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.045, 0.055, 0.07, 1)
@@ -152,10 +164,6 @@ script = ExtResource("12_manager")
 
 [node name="Atmosphere" type="Node" parent="."]
 script = ExtResource("17_atmosphere")
-
-[node name="MazeBuilder" type="Node3D" parent="."]
-script = ExtResource("10_maze")
-player_path = NodePath("../Player")
 
 [node name="Floor" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.3, 0)
@@ -392,6 +400,7 @@ fov = 72.0
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="MazeRadar" type="Control" parent="CanvasLayer"]
+visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -429,6 +438,45 @@ description = "The gate key was hidden near the deep rooms, away from the exit."
 
 [node name="ExitGate" parent="." instance=ExtResource("15_gate")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 5)
+
+[node name="ManualBuildPalette" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, -10)
+
+[node name="Dungeon_Walls_Module" parent="ManualBuildPalette" instance=ExtResource("21_dungeon_walls")]
+transform = Transform3D(0.28, 0, 0, 0, 0.28, 0, 0, 0, 0.28, 0, 0, 0)
+
+[node name="Dungeon_Corners_Module" parent="ManualBuildPalette" instance=ExtResource("22_dungeon_corners")]
+transform = Transform3D(0.24, 0, 0, 0, 0.24, 0, 0, 0, 0.24, 5, 0, 0)
+
+[node name="Dungeon_Floor_Module" parent="ManualBuildPalette" instance=ExtResource("23_dungeon_floor")]
+transform = Transform3D(0.08, 0, 0, 0, 0.08, 0, 0, 0, 0.08, 10, 0, 0)
+
+[node name="Dungeon_Arch_Module" parent="ManualBuildPalette" instance=ExtResource("24_dungeon_arch")]
+transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 15, 0, 0)
+
+[node name="Dungeon_Door_Module" parent="ManualBuildPalette" instance=ExtResource("25_dungeon_door")]
+transform = Transform3D(0.32, 0, 0, 0, 0.32, 0, 0, 0, 0.32, 20, 0, 0)
+
+[node name="Dungeon_Column_Module" parent="ManualBuildPalette" instance=ExtResource("26_dungeon_column")]
+transform = Transform3D(0.35, 0, 0, 0, 0.35, 0, 0, 0, 0.35, 25, 0, 0)
+
+[node name="Cave_Wall_Module" parent="ManualBuildPalette" instance=ExtResource("27_cave_wall")]
+transform = Transform3D(0.24, 0, 0, 0, 0.24, 0, 0, 0, 0.24, 0, 0, 7)
+
+[node name="Cave_Floor_Module" parent="ManualBuildPalette" instance=ExtResource("28_cave_floor")]
+transform = Transform3D(0.42, 0, 0, 0, 0.42, 0, 0, 0, 0.42, 5, 0, 7)
+
+[node name="Cave_Corridor_Module" parent="ManualBuildPalette" instance=ExtResource("29_cave_corridor")]
+transform = Transform3D(0.24, 0, 0, 0, 0.24, 0, 0, 0, 0.24, 10, 0, 7)
+
+[node name="Cave_RockWall_Module" parent="ManualBuildPalette" instance=ExtResource("30_rock_wall")]
+transform = Transform3D(0.18, 0, 0, 0, 0.18, 0, 0, 0, 0.18, 15, 0, 7)
+
+[node name="Cave_RockArch_Module" parent="ManualBuildPalette" instance=ExtResource("31_rock_arch")]
+transform = Transform3D(0.26, 0, 0, 0, 0.26, 0, 0, 0, 0.26, 20, 0, 7)
+
+[node name="Cave_RockCluster_Module" parent="ManualBuildPalette" instance=ExtResource("32_rock_cluster")]
+transform = Transform3D(0.32, 0, 0, 0, 0.32, 0, 0, 0, 0.32, 25, 0, 7)
 
 [node name="WindLeft" type="ColorRect" parent="CanvasLayer"]
 modulate = Color(1, 1, 1, 0)
