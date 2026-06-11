@@ -30,9 +30,9 @@
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.045, 0.055, 0.07, 1)
-sky_horizon_color = Color(0.13, 0.11, 0.085, 1)
-ground_bottom_color = Color(0.018, 0.016, 0.014, 1)
-ground_horizon_color = Color(0.055, 0.050, 0.043, 1)
+sky_horizon_color = Color(0.24, 0.22, 0.18, 1)
+ground_bottom_color = Color(0.05, 0.047, 0.042, 1)
+ground_horizon_color = Color(0.16, 0.145, 0.12, 1)
 
 [sub_resource type="Sky" id="Sky_base"]
 sky_material = SubResource("ProceduralSkyMaterial_1")
@@ -41,15 +41,15 @@ sky_material = SubResource("ProceduralSkyMaterial_1")
 background_mode = 2
 sky = SubResource("Sky_base")
 ambient_light_source = 3
-ambient_light_color = Color(0.30, 0.28, 0.24, 1)
-ambient_light_energy = 0.34
+ambient_light_color = Color(0.62, 0.58, 0.50, 1)
+ambient_light_energy = 0.82
 tonemap_mode = 2
 glow_enabled = true
 fog_enabled = true
-fog_light_color = Color(0.20, 0.18, 0.15, 1)
-fog_light_energy = 0.28
-fog_density = 0.018
-fog_sky_affect = 0.55
+fog_light_color = Color(0.42, 0.38, 0.31, 1)
+fog_light_energy = 0.18
+fog_density = 0.006
+fog_sky_affect = 0.25
 
 [sub_resource type="StandardMaterial3D" id="Material_floor"]
 albedo_color = Color(0.28, 0.29, 0.27, 1)
@@ -156,7 +156,7 @@ environment = SubResource("Environment_base")
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.813798, -0.34202, 0.469846, 0, 0.809017, 0.587785, -0.581148, -0.478138, 0.658876, 0, 12, 0)
 light_color = Color(0.74, 0.62, 0.44, 1)
-light_energy = 0.16
+light_energy = 1.15
 shadow_enabled = true
 
 [node name="GameManager" type="Node" parent="."]
