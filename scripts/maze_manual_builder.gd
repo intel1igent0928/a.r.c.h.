@@ -483,7 +483,30 @@ func _instantiate_asset(asset: Dictionary) -> Node3D:
 
 	var duplicate := target.duplicate()
 	root.free()
-	return duplicate as Node3D
+	if not (duplicate is Node3D):
+		duplicate.free()
+		return null
+
+	return _normalize_extracted_asset(duplicate)
+
+
+func _normalize_extracted_asset(asset_root: Node3D) -> Node3D:
+	var wrapper := Node3D.new()
+	wrapper.name = "ExtractedAsset"
+
+	asset_root.transform.origin = Vector3.ZERO
+	wrapper.add_child(asset_root)
+
+	var bounds := _calculate_local_aabb(wrapper)
+	if bounds.size.length() >= 0.01:
+		var center_xz := Vector3(
+			bounds.position.x + bounds.size.x * 0.5,
+			bounds.position.y,
+			bounds.position.z + bounds.size.z * 0.5
+		)
+		asset_root.position -= center_xz
+
+	return wrapper
 
 
 func _find_asset(pack_name: String, model_name: String) -> Dictionary:
