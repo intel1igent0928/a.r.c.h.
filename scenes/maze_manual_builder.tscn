@@ -1,0 +1,60 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/maze_manual_builder.gd" id="1_builder"]
+[ext_resource type="Script" path="res://scripts/builder_camera.gd" id="2_camera"]
+[ext_resource type="Script" path="res://scripts/asset_pack_browser.gd" id="3_browser"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_builder"]
+sky_top_color = Color(0.46, 0.58, 0.72, 1)
+sky_horizon_color = Color(0.78, 0.76, 0.68, 1)
+ground_bottom_color = Color(0.22, 0.22, 0.21, 1)
+ground_horizon_color = Color(0.48, 0.45, 0.38, 1)
+
+[sub_resource type="Sky" id="Sky_builder"]
+sky_material = SubResource("ProceduralSkyMaterial_builder")
+
+[sub_resource type="Environment" id="Environment_builder"]
+background_mode = 2
+sky = SubResource("Sky_builder")
+ambient_light_source = 3
+ambient_light_color = Color(0.92, 0.88, 0.78, 1)
+ambient_light_energy = 1.55
+tonemap_mode = 2
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(2400, 2400)
+
+[sub_resource type="StandardMaterial3D" id="Material_ground"]
+albedo_color = Color(0.26, 0.27, 0.25, 1)
+roughness = 0.9
+
+[node name="MazeManualBuilder" type="Node3D"]
+script = ExtResource("1_builder")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_builder")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 14, 0)
+light_energy = 2.6
+shadow_enabled = true
+
+[node name="GroundVisual" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.01, 0)
+mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("Material_ground")
+
+[node name="GridVisual" type="MeshInstance3D" parent="."]
+
+[node name="BuilderCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.970296, 0.241922, 0, -0.241922, 0.970296, 0, 18, 34)
+current = true
+fov = 82.0
+script = ExtResource("2_camera")
+
+[node name="PlacedObjects" type="Node3D" parent="."]
+
+[node name="PreviewRoot" type="Node3D" parent="."]
+
+[node name="AssetPackBrowser" type="CanvasLayer" parent="."]
+script = ExtResource("3_browser")

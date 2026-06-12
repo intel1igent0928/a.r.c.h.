@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://bs4aknvq0p0l6"
+path="res://.godot/imported/template-wall-half.obj-b6a6fd1944c38974d332db04dc0f6d41.mesh"
+
+[deps]
+
+files=["res://.godot/imported/template-wall-half.obj-b6a6fd1944c38974d332db04dc0f6d41.mesh"]
+
+source_file="res://assets/Kenney Modlar/Models/OBJ format/template-wall-half.obj"
+dest_files=["res://.godot/imported/template-wall-half.obj-b6a6fd1944c38974d332db04dc0f6d41.mesh", "res://.godot/imported/template-wall-half.obj-b6a6fd1944c38974d332db04dc0f6d41.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false
