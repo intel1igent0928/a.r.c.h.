@@ -27,19 +27,7 @@
 [ext_resource type="PackedScene" uid="uid://d0u0jlb5fb3gw" path="res://assets/Cave/rock_arch.glb" id="31_rock_arch"]
 [ext_resource type="PackedScene" uid="uid://b84f3asjhth5d" path="res://assets/Cave/rock_cluster.glb" id="32_rock_cluster"]
 
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/template-floor.glb" id="kmod_floor"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/template-wall.glb" id="kmod_wall"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/template-wall-corner.glb" id="kmod_wall_corner"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/corridor.glb" id="kmod_corridor"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/corridor-corner.glb" id="kmod_corridor_corner"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/corridor-junction.glb" id="kmod_corridor_junction"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/room-small.glb" id="kmod_room_small"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/gate.glb" id="kmod_gate"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/gate-door.glb" id="kmod_gate_door"]
-[ext_resource type="PackedScene" path="res://assets/Kenney Modlar/Models/GLB format/stairs.glb" id="kmod_stairs"]
-[ext_resource type="PackedScene" path="res://assets/Uploaded Dungeon Packs/dungeon_corridor_pack_w_assets_and_modules.glb" id="upload_dungeon_corridor"]
-[ext_resource type="PackedScene" path="res://assets/Uploaded Dungeon Packs/free_modular_low_poly_dungeon_pack.glb" id="upload_free_modular_dungeon"]
-[ext_resource type="PackedScene" path="res://assets/Uploaded Dungeon Packs/low_poly_modular_dungeon_sand_biome.glb" id="upload_sand_biome_dungeon"]
+
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
 sky_top_color = Color(0.045, 0.055, 0.07, 1)
 sky_horizon_color = Color(0.24, 0.22, 0.18, 1)
@@ -275,64 +263,4 @@ offset_right = 760.0
 offset_bottom = 118.0
 text = "WASD move | Shift run | Space jump | Ctrl crouch | Shift+Ctrl slide | V camera | F flashlight | Esc mouse"
 
-[node name="Kenney_Showcase" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -18)
 
-[node name="Kenney_Modlar_Label" type="Label3D" parent="Kenney_Showcase"]
-transform = Transform3D(1.9, 0, 0, 0, 1.9, 0, 0, 0, 1.9, -36, 3.2, -5)
-text = "Kenney Modlar"
-billboard = 1
-
-[node name="Dungeon_Corridor_Pack_Label" type="Label3D" parent="Kenney_Showcase"]
-transform = Transform3D(1.9, 0, 0, 0, 1.9, 0, 0, 0, 1.9, 36, 3.2, -5)
-text = "Dungeon corridor pack"
-billboard = 1
-
-[node name="Free_Modular_Dungeon_Label" type="Label3D" parent="Kenney_Showcase"]
-transform = Transform3D(1.9, 0, 0, 0, 1.9, 0, 0, 0, 1.9, 72, 3.2, -5)
-text = "Free modular dungeon"
-billboard = 1
-
-[node name="Sand_Biome_Dungeon_Label" type="Label3D" parent="Kenney_Showcase"]
-transform = Transform3D(1.9, 0, 0, 0, 1.9, 0, 0, 0, 1.9, 108, 3.2, -5)
-text = "Sand biome dungeon"
-billboard = 1
-
-[node name="Modlar_Floor" parent="Kenney_Showcase" instance=ExtResource("kmod_floor")]
-transform = Transform3D(2.0, 0, 0, 0, 2.0, 0, 0, 0, 2.0, -44, 0, -2)
-
-[node name="Modlar_Wall" parent="Kenney_Showcase" instance=ExtResource("kmod_wall")]
-transform = Transform3D(1.4, 0, 0, 0, 1.4, 0, 0, 0, 1.4, -38, 0, -2)
-
-[node name="Modlar_WallCorner" parent="Kenney_Showcase" instance=ExtResource("kmod_wall_corner")]
-transform = Transform3D(1.4, 0, 0, 0, 1.4, 0, 0, 0, 1.4, -32, 0, -2)
-
-[node name="Modlar_Corridor" parent="Kenney_Showcase" instance=ExtResource("kmod_corridor")]
-transform = Transform3D(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, -44, 0, -9)
-
-[node name="Modlar_CorridorCorner" parent="Kenney_Showcase" instance=ExtResource("kmod_corridor_corner")]
-transform = Transform3D(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, -38, 0, -9)
-
-[node name="Modlar_Junction" parent="Kenney_Showcase" instance=ExtResource("kmod_corridor_junction")]
-transform = Transform3D(1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, -32, 0, -9)
-
-[node name="Modlar_RoomSmall" parent="Kenney_Showcase" instance=ExtResource("kmod_room_small")]
-transform = Transform3D(0.9, 0, 0, 0, 0.9, 0, 0, 0, 0.9, -44, 0, -17)
-
-[node name="Modlar_Gate" parent="Kenney_Showcase" instance=ExtResource("kmod_gate")]
-transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -38, 0, -17)
-
-[node name="Modlar_GateDoor" parent="Kenney_Showcase" instance=ExtResource("kmod_gate_door")]
-transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -32, 0, -17)
-
-[node name="Modlar_Stairs" parent="Kenney_Showcase" instance=ExtResource("kmod_stairs")]
-transform = Transform3D(1.2, 0, 0, 0, 1.2, 0, 0, 0, 1.2, -26, 0, -17)
-
-[node name="Uploaded_Dungeon_Corridor_Pack" parent="Kenney_Showcase" instance=ExtResource("upload_dungeon_corridor")]
-transform = Transform3D(0.65, 0, 0, 0, 0.65, 0, 0, 0, 0.65, 36, 0, -10)
-
-[node name="Uploaded_Free_Modular_Dungeon_Pack" parent="Kenney_Showcase" instance=ExtResource("upload_free_modular_dungeon")]
-transform = Transform3D(1.15, 0, 0, 0, 1.15, 0, 0, 0, 1.15, 72, 0, -10)
-
-[node name="Uploaded_Sand_Biome_Dungeon_Pack" parent="Kenney_Showcase" instance=ExtResource("upload_sand_biome_dungeon")]
-transform = Transform3D(1.25, 0, 0, 0, 1.25, 0, 0, 0, 1.25, 108, 0, -10)

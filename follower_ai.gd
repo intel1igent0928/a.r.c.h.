@@ -99,6 +99,10 @@ func _get_follow_target() -> Vector3:
 	return target
 
 func _repath_to(target: Vector3):
+	if not _maze_builder:
+		path = [target]
+		path_index = 0
+		return
 	if _maze_builder.has_method("find_path_world"):
 		path = _maze_builder.find_path_world(global_position, target)
 		if path.is_empty():

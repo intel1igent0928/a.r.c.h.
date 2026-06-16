@@ -10,7 +10,7 @@ var _time := 0.0
 
 func _ready():
 	_base_energy = light_energy
-	_rng.randomize()
+	_rng.seed = (Time.get_ticks_usec() + get_instance_id()) % 4294967295
 	_time = _rng.randf_range(0.0, 1000.0)
 
 func _process(delta: float):

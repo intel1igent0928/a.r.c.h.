@@ -3,6 +3,9 @@ extends Node
 const START_TITLE = "A.R.C.H."
 const START_TEXT = "Find the gate key, read the notes, and leave the maze before the thing learns your route."
 
+const REMOTE_PLAYER_SCENE = preload("res://remote_player.tscn")
+const LOBBY_UI_SCRIPT    = preload("res://lobby_ui.gd")
+
 var key_found := false
 var exit_open := false
 var notes_found := 0
@@ -10,6 +13,12 @@ var relic_found := false
 var game_started := false
 var game_over := false
 var threat := 0.0
+
+# ── Multiplayer state ─────────────────────────────────────────────────────────
+var _is_multiplayer_session := false
+var _remote_players: Dictionary = {}   # peer_id -> RemotePlayer node
+var _lobby_ui: Node = null             # LobbyUI instance
+var _maze_builder: Node = null         # reference to MazeBuilder for external grid
 
 var _canvas: CanvasLayer
 var _root_ui: Control
@@ -28,9 +37,34 @@ func _ready():
 	_ensure_input()
 	_canvas = get_tree().root.find_child("CanvasLayer", true, false) as CanvasLayer
 	_player = get_tree().root.find_child("Player", true, false)
+	_maze_builder = get_tree().root.find_child("MazeBuilder", true, false)
 	_refresh_monsters()
 	_build_ui()
+	_setup_lobby()
 	call_deferred("_show_start")
+
+# ── Multiplayer lobby setup ───────────────────────────────────────────────────
+func _setup_lobby() -> void:
+	if not _canvas:
+		return
+	_lobby_ui = LOBBY_UI_SCRIPT.new()
+	_lobby_ui.name = "LobbyUI"
+	_canvas.add_child(_lobby_ui)
+	_lobby_ui.setup(_canvas)
+	_lobby_ui.start_requested.connect(_on_lobby_start_requested)
+	_lobby_ui.back_requested.connect(_show_start)
+	NetworkManager.player_connected.connect(_on_net_player_connected)
+	NetworkManager.player_disconnected.connect(_on_net_player_disconnected)
+	NetworkManager.server_disconnected.connect(_on_net_server_disconnected)
+	multiplayer.connected_to_server.connect(_on_net_connected_to_server)
+	# For host, we spawn our own avatar immediately when the server is created
+	# (We'll hook into NetworkManager for this since it handles ENet creation)
+	var old_create = NetworkManager.create_server
+	NetworkManager.create_server = func(port = NetworkManager.DEFAULT_PORT):
+		var err = old_create.call(port)
+		if err == OK:
+			_on_net_connected_to_server()
+		return err
 
 func _process(delta: float):
 	threat = max(threat - delta * 0.02, 0.0)
@@ -38,6 +72,13 @@ func _process(delta: float):
 		var target_alpha = clamp(threat * 0.07, 0.0, 0.16)
 		_fear_overlay.color.a = lerp(_fear_overlay.color.a, target_alpha, delta * 3.0)
 	_sync_mouse_mode()
+	
+	if _is_multiplayer_session and _player:
+		var my_id := multiplayer.get_unique_id()
+		if _remote_players.has(my_id):
+			var my_avatar = _remote_players[my_id]
+			if is_instance_valid(my_avatar):
+				my_avatar.update_from_local_player(_player.global_position, _player.rotation.y)
 
 func _unhandled_input(event: InputEvent):
 	if event.is_action_pressed("ui_cancel"):
@@ -46,6 +87,7 @@ func _unhandled_input(event: InputEvent):
 		_toggle_pause()
 
 func start_game():
+	_is_multiplayer_session = false
 	game_started = true
 	game_over = false
 	get_tree().paused = false
@@ -58,6 +100,45 @@ func start_game():
 	_update_objective()
 	_refresh_monsters()
 	_set_monsters_active(true)
+
+## Called by the lobby when the host presses Play.
+func _on_lobby_start_requested(rows: Array) -> void:
+	_is_multiplayer_session = NetworkManager.is_online
+	# Load lobby grid into maze builder (if available)
+	if _maze_builder and _maze_builder.has_method("load_external_grid"):
+		_maze_builder.load_external_grid(rows)
+		_maze_builder.build_from_current_grid()
+	# If multiplayer, tell all peers to start
+	if _is_multiplayer_session:
+		_rpc_start_game.rpc(rows)
+	else:
+		_finish_start_game()
+	if _lobby_ui:
+		_lobby_ui.hide_lobby()
+
+func _finish_start_game() -> void:
+	game_started = true
+	game_over = false
+	get_tree().paused = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_set_ui_interactive(false)
+	_menu_panel.visible = false
+	_pause_panel.visible = false
+	_end_panel.visible = false
+	_settings_panel.visible = false
+	_update_objective()
+	_refresh_monsters()
+	_set_monsters_active(true)
+
+@rpc("authority", "reliable")
+func _rpc_start_game(rows: Array) -> void:
+	# Client receives this and starts the game with the synced grid
+	if _maze_builder and _maze_builder.has_method("load_external_grid"):
+		_maze_builder.load_external_grid(rows)
+		_maze_builder.build_from_current_grid()
+	if _lobby_ui:
+		_lobby_ui.hide_lobby()
+	_finish_start_game()
 
 func register_pickup(item_name: String, points: int, dangerous: bool, description: String):
 	var lower = item_name.to_lower()
@@ -99,19 +180,40 @@ func win_game():
 		return
 	game_over = true
 	exit_open = true
+	if _is_multiplayer_session:
+		_rpc_win_game.rpc()
+	_do_win()
+
+func _do_win() -> void:
+	game_over = true
+	exit_open = true
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_set_ui_interactive(true)
 	_show_end("YOU ESCAPED", "You found the key and left the maze with %d note(s). The morning looks fake, but it is yours." % notes_found)
 
+@rpc("any_peer", "reliable")
+func _rpc_win_game() -> void:
+	_do_win()
+
 func kill_player(reason := "The monster caught you."):
 	if game_over:
 		return
+	game_over = true
+	if _is_multiplayer_session:
+		_rpc_kill_player.rpc(reason)
+	_do_kill(reason)
+
+func _do_kill(reason: String) -> void:
 	game_over = true
 	get_tree().paused = true
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_set_ui_interactive(true)
 	_show_end("YOU DIED", reason)
+
+@rpc("any_peer", "reliable")
+func _rpc_kill_player(reason: String) -> void:
+	_do_kill(reason)
 
 func scare_pulse(amount := 0.6):
 	threat += amount
@@ -147,6 +249,47 @@ func _show_start():
 	_pause_panel.visible = false
 	_end_panel.visible = false
 	_settings_panel.visible = false
+	if _lobby_ui:
+		_lobby_ui.hide_lobby()
+
+# ── Multiplayer peer callbacks ─────────────────────────────────────────────────
+
+func _on_net_player_connected(peer_id: int) -> void:
+	# Spawn a RemotePlayer puppet for the new peer
+	if _remote_players.has(peer_id):
+		return
+	var rp: CharacterBody3D = REMOTE_PLAYER_SCENE.instantiate()
+	rp.name = "RemotePlayer_%d" % peer_id
+	rp.set("owner_peer_id", peer_id)
+	rp.set("player_label", "Игрок (id %d)" % peer_id)
+	if _player:
+		rp.global_position = _player.global_position + Vector3(1.5, 0, 0)
+	get_tree().root.add_child(rp)
+	_remote_players[peer_id] = rp
+
+func _on_net_connected_to_server() -> void:
+	# Spawn my own remote player so it can broadcast
+	var my_id := multiplayer.get_unique_id()
+	_on_net_player_connected(my_id)
+	# And spawn everyone who is already connected
+	for peer_id in multiplayer.get_peers():
+		_on_net_player_connected(peer_id)
+
+func _on_net_player_disconnected(peer_id: int) -> void:
+	if _remote_players.has(peer_id):
+		var rp = _remote_players[peer_id]
+		if is_instance_valid(rp):
+			rp.queue_free()
+		_remote_players.erase(peer_id)
+
+func _on_net_server_disconnected() -> void:
+	_is_multiplayer_session = false
+	for pid in _remote_players.keys():
+		var rp = _remote_players[pid]
+		if is_instance_valid(rp):
+			rp.queue_free()
+	_remote_players.clear()
+	kill_player("Соединение с хостом потеряно.")
 
 func _toggle_pause():
 	var paused = not get_tree().paused
@@ -227,8 +370,14 @@ func _build_ui():
 	_add_title(_menu_panel, START_TITLE)
 	_add_body(_menu_panel, START_TEXT)
 	_add_button(_menu_panel, "Start", start_game)
+	_add_button(_menu_panel, "Multiplayer", _show_multiplayer_lobby)
 	_add_button(_menu_panel, "Settings", _show_settings)
 	_add_button(_menu_panel, "Quit", _quit_game)
+
+func _show_multiplayer_lobby() -> void:
+	_menu_panel.visible = false
+	if _lobby_ui:
+		_lobby_ui.show_lobby()
 
 	_pause_panel = _make_panel("PauseMenu", "VBox")
 	_add_title(_pause_panel, "PAUSED")
@@ -356,10 +505,13 @@ func _ensure_input():
 		InputMap.action_add_event("ui_cancel", event)
 
 func is_playing() -> bool:
+	if not _settings_panel:
+		return false
 	return game_started and not game_over and not get_tree().paused and not _settings_panel.visible
 
 func _sync_mouse_mode():
-	if not game_started or game_over or get_tree().paused or _settings_panel.visible:
+	var settings_open = _settings_panel != null and _settings_panel.visible
+	if not game_started or game_over or get_tree().paused or settings_open:
 		_set_ui_interactive(true)
 		if Input.get_mouse_mode() != Input.MOUSE_MODE_VISIBLE:
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)

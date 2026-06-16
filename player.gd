@@ -95,8 +95,21 @@ func _ready():
 	_build_footstep_audio()
 	_set_camera_mode(false)
 	_update_ui("Walk")
+	# Sync third-person pivot pitch so it doesn’t snap on first look
+	if third_person_pivot:
+		third_person_pivot.rotation.x = camera_pitch
+	# — Multiplayer: hide camera/hands for remote copies —
+	if not is_multiplayer_authority():
+		if camera:
+			camera.current = false
+		if third_person_camera:
+			third_person_camera.current = false
+		if player_hands:
+			player_hands.visible = false
 
 func _input(event):
+	if not is_multiplayer_authority():
+		return
 	if not _can_accept_play_input():
 		return
 
@@ -133,6 +146,8 @@ func _set_flashlight_visible(is_visible: bool):
 		player_hands.set_light_enabled(is_visible)
 
 func _physics_process(delta):
+	if not is_multiplayer_authority():
+		return
 	if not _can_accept_play_input():
 		velocity = Vector3.ZERO
 		return

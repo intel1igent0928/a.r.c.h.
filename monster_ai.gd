@@ -113,7 +113,7 @@ func _update_state():
 	if distance_to_player <= catch_range:
 		_play_animation("Attack")
 		var manager = get_tree().root.find_child("GameManager", true, false)
-		if manager and manager.has_method("kill_player"):
+		if manager and manager.has_method("kill_player") and manager.has_method("is_playing") and manager.is_playing():
 			manager.kill_player("It found you in the maze.")
 		return
 
@@ -208,7 +208,11 @@ func _repath_to_player():
 	_repath_to_position(_player.global_position)
 
 func _repath_to_position(world_position: Vector3):
-	if _maze_builder and _maze_builder.has_method("get_nearest_walkable_world"):
+	if not _maze_builder:
+		path = [world_position]
+		path_index = 0
+		return
+	if _maze_builder.has_method("get_nearest_walkable_world"):
 		world_position = _maze_builder.get_nearest_walkable_world(world_position, 0.05)
 	if _maze_builder.has_method("find_path_world"):
 		path = _maze_builder.find_path_world(global_position, world_position)

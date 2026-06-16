@@ -11,9 +11,13 @@ config_version=5
 [application]
 
 config/name="A.R.C.H."
-run/main_scene="res://scenes/maze_manual_builder.tscn"
+run/main_scene="uid://kvt561sck0y0"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+NetworkManager="*res://network_manager.gd"
 
 [physics]
 

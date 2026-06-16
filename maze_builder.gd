@@ -11,20 +11,35 @@ const BATTERY_MARKER = "B"
 const ARTIFACT_MARKER = "A"
 const KEY_MARKER = "K"
 const NOTE_MARKER = "N"
-const TORCH_MODEL_PATH = "res://assets/props/torch/burning_torch.glb"
 const PROP_MODEL_SCRIPT = preload("res://prop_model.gd")
-const DUNGEON_WALL_MODEL = "res://assets/Dungeon/walls.glb"
-const DUNGEON_CORNER_MODEL = "res://assets/Dungeon/corners.glb"
-const DUNGEON_FLOOR_MODEL = "res://assets/Dungeon/floor.glb"
-const DUNGEON_ARCH_MODEL = "res://assets/Dungeon/arch.glb"
-const DUNGEON_DOOR_MODEL = "res://assets/Dungeon/door.glb"
-const DUNGEON_COLUMN_MODEL = "res://assets/Dungeon/column.glb"
-const CAVE_WALL_MODEL = "res://assets/Cave/cave_wall.glb"
-const CAVE_FLOOR_MODEL = "res://assets/Cave/cave_floor.glb"
-const CAVE_CORRIDOR_MODEL = "res://assets/Cave/cave_corridor.glb"
-const CAVE_ROCK_WALL_MODEL = "res://assets/Cave/rock_wall.glb"
-const CAVE_ROCK_ARCH_MODEL = "res://assets/Cave/rock_arch.glb"
-const CAVE_ROCK_CLUSTER_MODEL = "res://assets/Cave/rock_cluster.glb"
+
+# ── Kenney Modlar tile paths ───────────────────────────────────────────
+const KM_BASE              = "res://assets/Kenney Modlar/Models/GLB format/"
+const KM_CORRIDOR          = KM_BASE + "corridor.glb"
+const KM_CORRIDOR_CORNER   = KM_BASE + "corridor-corner.glb"
+const KM_CORRIDOR_JUNC     = KM_BASE + "corridor-junction.glb"
+const KM_CORRIDOR_CROSS    = KM_BASE + "corridor-intersection.glb"
+const KM_CORRIDOR_END      = KM_BASE + "corridor-end.glb"
+const KM_CORRIDOR_WIDE     = KM_BASE + "corridor-wide.glb"
+const KM_CORRIDOR_W_CORN   = KM_BASE + "corridor-wide-corner.glb"
+const KM_CORRIDOR_W_JUNC   = KM_BASE + "corridor-wide-junction.glb"
+const KM_CORRIDOR_W_CROSS  = KM_BASE + "corridor-wide-intersection.glb"
+const KM_CORRIDOR_W_END    = KM_BASE + "corridor-wide-end.glb"
+const KM_ROOM_SMALL        = KM_BASE + "room-small.glb"
+const KM_ROOM_SMALL_VAR    = KM_BASE + "room-small-variation.glb"
+const KM_ROOM_LARGE        = KM_BASE + "room-large.glb"
+const KM_ROOM_LARGE_VAR    = KM_BASE + "room-large-variation.glb"
+const KM_ROOM_WIDE         = KM_BASE + "room-wide.glb"
+const KM_ROOM_CORNER       = KM_BASE + "room-corner.glb"
+const KM_GATE              = KM_BASE + "gate.glb"
+const KM_GATE_DOOR         = KM_BASE + "gate-door.glb"
+const KM_GATE_BARS         = KM_BASE + "gate-metal-bars.glb"
+const KM_FLOOR             = KM_BASE + "template-floor.glb"
+const KM_FLOOR_BIG         = KM_BASE + "template-floor-big.glb"
+const KM_WALL              = KM_BASE + "template-wall.glb"
+const KM_WALL_CORNER       = KM_BASE + "template-wall-corner.glb"
+const KM_WALL_HALF         = KM_BASE + "template-wall-half.glb"
+const KM_STAIRS            = KM_BASE + "stairs.glb"
 
 enum VisualZone { NORMAL_MAZE, TIGHT_START, BRANCHING_MID, LIBRARY_ZONE, CAVE_ZONE, MIRROR_ZONE, ARCHIVE_ZONE, STRANGE_BUILDING_ZONE, LANDMARK_ROOM }
 
@@ -68,7 +83,7 @@ const ENVIRONMENT_PROP_SOURCES = {
 @export var player_path: NodePath
 @export var maze_cells_x = 14
 @export var maze_cells_y = 12
-@export var cell_size = 6.4
+@export var cell_size = 4.0   # Kenney Modlar tiles are 4 m × 4 m
 @export var min_wall_height = 7.5
 @export var max_wall_height = 11.5
 @export var branch_rate = 0.90
@@ -94,6 +109,11 @@ var start_grid = Vector2i.ZERO
 var exit_grid = Vector2i.ZERO
 var world_origin = Vector3.ZERO
 
+# ── Multiplayer external grid support ──────────────────────────────────────
+# Set to true before _ready() if you want to skip procedural generation
+# and use the grid designed in the co-op lobby instead.
+var _use_external_grid := false
+
 var pickup_cells := {}
 var room_cells := {}
 var cave_cells := {}
@@ -111,12 +131,51 @@ var generation_stats := {}
 
 func _ready():
 	_remove_test_arena()
-	_generate_maze()
+	if _use_external_grid:
+		# Grid was already loaded via load_external_grid() before _ready
+		_finalize_grid_metadata()
+	else:
+		_generate_maze()
 	_build_geometry()
 	_build_environment_props()
 	_build_lights()
 	_place_player()
 	_place_pickups()
+
+## Load a custom grid (from the co-op lobby editor) before the scene starts.
+## Call this BEFORE the node enters the tree (i.e., from its parent's _ready).
+func load_external_grid(rows: Array) -> void:
+	_use_external_grid = true
+	radar_grid.clear()
+	for r in rows:
+		radar_grid.append(str(r))
+
+## Call this after load_external_grid() if the node is already in the tree.
+func build_from_current_grid() -> void:
+	_finalize_grid_metadata()
+	_build_geometry()
+	_build_environment_props()
+	_build_lights()
+	_place_player()
+	_place_pickups()
+
+## Derives start/exit/world_origin from the loaded radar_grid.
+func _finalize_grid_metadata() -> void:
+	if radar_grid.is_empty():
+		return
+	var grid_w := radar_grid[0].length()
+	var grid_h := radar_grid.size()
+	world_origin = Vector3(-float(grid_w - 1) * cell_size * 0.5, 0.0, -float(grid_h - 1) * cell_size * 0.5)
+	# Locate S and E markers
+	for y in range(grid_h):
+		for x in range(grid_w):
+			var ch := radar_grid[y][x]
+			if ch == START:
+				start_grid = Vector2i(x, y)
+			elif ch == EXIT:
+				exit_grid  = Vector2i(x, y)
+	_register_visual_zones()
+	_update_generation_stats(radar_grid)
 
 func get_radar_grid() -> Array[String]:
 	return radar_grid
@@ -890,11 +949,13 @@ func _clamp_to_rect(cell: Vector2i, rect: Rect2i) -> Vector2i:
 func _add_dead_end_spurs(rows: Array[String], rng: RandomNumberGenerator, spur_count: int):
 	var attempts = spur_count * 12
 	var made = 0
+	# Build candidate list once outside the loop to avoid O(n*attempts) cost
+	var all_walkable = _get_walkable_cells(rows)
+	if all_walkable.is_empty():
+		return
 	while made < spur_count and attempts > 0:
 		attempts -= 1
-		var candidates = _get_walkable_cells(rows)
-		if candidates.is_empty():
-			return
+		var candidates = all_walkable
 		var base = candidates[rng.randi_range(0, candidates.size() - 1)]
 		if base.distance_to(start_grid) < 5.0 or base.distance_to(exit_grid) < 5.0:
 			continue
@@ -1170,13 +1231,22 @@ func _get_zone_display_name(zone: int) -> String:
 			return "landmark"
 	return "maze"
 
+# ══════════════════════════════════════════════════════════════════════
+# KENNEY MODLAR — Tile-based geometry builder
+# ══════════════════════════════════════════════════════════════════════
+
 func _build_geometry():
 	_maze_root = Node3D.new()
 	_maze_root.name = "GeneratedMaze"
 	add_child(_maze_root)
 
+	var rng = RandomNumberGenerator.new()
+	rng.seed = maze_seed + 7777
+
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
+
+	# Global floor collision to prevent player falling through Kenney tiles
 	var floor_body = StaticBody3D.new()
 	floor_body.name = "MazeFloor"
 	_maze_root.add_child(floor_body)
@@ -1188,115 +1258,201 @@ func _build_geometry():
 	floor_collision.shape = floor_shape
 	floor_body.add_child(floor_collision)
 
-	var height_rng = RandomNumberGenerator.new()
-	height_rng.seed = maze_seed + 999
-
 	for y in range(grid_h):
 		for x in range(grid_w):
 			var cell = Vector2i(x, y)
 			var marker = radar_grid[y].substr(x, 1)
-			if marker == WALL:
-				_add_modular_wall_cell(cell, height_rng)
+			if not _is_walkable_marker(marker):
+				# Wall cells: add invisible collision box only
+				_add_wall_collision(cell)
 			else:
-				_add_modular_floor_cell(cell, height_rng)
+				# Walkable cells: choose & place the right Kenney tile
+				_place_kenney_tile(cell, rng)
+				# Zone entrance gate overlay
 				if zone_entrance_cells.has(cell):
-					_add_modular_zone_transition(cell, height_rng)
-				if room_cells.has(cell):
-					if _should_add_room_ruin(cell):
-						_add_room_ruin(cell, null, height_rng)
-				if cave_cells.has(cell) and _should_add_cave_feature(cell):
-					_add_cave_feature(cell, null, height_rng)
+					_place_zone_gate(cell, rng)
 
-func _create_surface_material_variants(sources: Array, fallback: Material, uv_scale: Vector3) -> Array[Material]:
-	var variants: Array[Material] = [fallback]
-	for source in sources:
-		var material = _create_imported_surface_material(source, uv_scale)
-		if material:
-			variants.append(material)
-	return variants
-
-func _add_modular_floor_cell(cell: Vector2i, rng: RandomNumberGenerator):
-	var zone = _get_visual_zone(cell)
-	var model_path = CAVE_CORRIDOR_MODEL if zone == VisualZone.CAVE_ZONE and rng.randf() < 0.45 else CAVE_FLOOR_MODEL if zone == VisualZone.CAVE_ZONE else DUNGEON_FLOOR_MODEL
-	_add_scene_module(
-		"Floor_%d_%d" % [cell.x, cell.y],
-		model_path,
-		grid_to_world(cell, 0.0),
-		0.0,
-		cell_size * 0.98,
-		0.0
-	)
-
-func _add_modular_wall_cell(cell: Vector2i, rng: RandomNumberGenerator):
-	var exposed_dirs = _get_exposed_wall_dirs(cell)
-	if exposed_dirs.is_empty():
+# ── Collision only for wall cells ─────────────────────────────────
+func _add_wall_collision(cell: Vector2i):
+	# Only add collision if the wall is adjacent to a walkable cell
+	var exposed = _get_exposed_wall_dirs(cell)
+	if exposed.is_empty():
 		return
-	var touches_cave = _wall_touches_zone(cell, VisualZone.CAVE_ZONE)
 	var body = StaticBody3D.new()
-	body.name = "WallCollision_%d_%d" % [cell.x, cell.y]
+	body.name = "WallCol_%d_%d" % [cell.x, cell.y]
 	body.position = grid_to_world(cell, max_wall_height * 0.5)
 	_maze_root.add_child(body)
-
-	var collision = CollisionShape3D.new()
+	var col = CollisionShape3D.new()
 	var shape = BoxShape3D.new()
 	shape.size = Vector3(cell_size, max_wall_height, cell_size)
-	collision.shape = shape
-	body.add_child(collision)
+	col.shape = shape
+	body.add_child(col)
 
-	for dir in exposed_dirs:
-		var wall_model = CAVE_ROCK_WALL_MODEL if touches_cave and rng.randf() < 0.45 else CAVE_WALL_MODEL if touches_cave else DUNGEON_WALL_MODEL
-		var face_position = grid_to_world(cell, 0.0) + Vector3(dir.x, 0.0, dir.y) * (cell_size * 0.38)
-		_add_scene_module(
-			("CaveWall" if touches_cave else "DungeonWall") + "_%d_%d" % [cell.x, cell.y],
-			wall_model,
-			face_position,
-			_get_wall_yaw_for_dir(dir),
-			cell_size * 1.02,
-			0.0
-		)
-
-	if exposed_dirs.size() >= 2:
-		var corner_model = CAVE_ROCK_WALL_MODEL if touches_cave else DUNGEON_CORNER_MODEL
-		_add_scene_module(
-			("CaveCorner" if touches_cave else "DungeonCorner") + "_%d_%d" % [cell.x, cell.y],
-			corner_model,
-			grid_to_world(cell, 0.0),
-			_get_corner_yaw(exposed_dirs),
-			cell_size * 1.02,
-			0.0
-		)
-
-func _add_modular_zone_transition(cell: Vector2i, rng: RandomNumberGenerator):
-	var zone = _get_visual_zone(cell)
-	var model_path = DUNGEON_ARCH_MODEL
-	if zone == VisualZone.CAVE_ZONE:
-		model_path = CAVE_ROCK_ARCH_MODEL
-	elif zone == VisualZone.STRANGE_BUILDING_ZONE or zone == VisualZone.ARCHIVE_ZONE:
-		model_path = DUNGEON_DOOR_MODEL
-	var yaw = _get_transition_yaw(cell, rng)
+# ── Core tile placement ─────────────────────────────────────────
+func _place_kenney_tile(cell: Vector2i, rng: RandomNumberGenerator):
+	var info = _pick_kenney_tile(cell, rng)
+	if info.is_empty():
+		return
 	_add_scene_module(
-		"ZoneTransition_%s_%d_%d" % [_get_zone_display_name(zone).replace(" ", "_"), cell.x, cell.y],
-		model_path,
+		"Tile_%d_%d" % [cell.x, cell.y],
+		info["path"],
+		grid_to_world(cell, 0.0),
+		info["yaw"],
+		cell_size,   # target footprint = 1 cell
+		0.0,
+		false        # DO NOT fit to grid, Kenney tiles use their own origin!
+	)
+
+# ── Tile selector ─────────────────────────────────────────────────
+func _pick_kenney_tile(cell: Vector2i, rng: RandomNumberGenerator) -> Dictionary:
+	var zone = _get_visual_zone(cell)
+	var is_room = room_cells.has(cell)
+	var is_wide = zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.ARCHIVE_ZONE or zone == VisualZone.LANDMARK_ROOM
+
+	# --- ROOM cells: use room prefabs ---
+	if is_room and not cave_cells.has(cell):
+		return _pick_room_tile(cell, zone, rng)
+
+	# --- Corridor / path cells: analyse neighbors ---
+	var left  = _is_walkable_cell(radar_grid, cell + Vector2i.LEFT)
+	var right = _is_walkable_cell(radar_grid, cell + Vector2i.RIGHT)
+	var up    = _is_walkable_cell(radar_grid, cell + Vector2i.UP)
+	var down  = _is_walkable_cell(radar_grid, cell + Vector2i.DOWN)
+	var count = int(left) + int(right) + int(up) + int(down)
+
+	# 0 open sides  → isolated floor tile
+	if count == 0:
+		return {"path": KM_FLOOR, "yaw": 0.0}
+
+	# 1 open side  → dead-end
+	if count == 1:
+		var yaw = 0.0
+		if right: yaw = PI * 0.5
+		elif down: yaw = PI
+		elif left: yaw = PI * 1.5
+		var model = KM_CORRIDOR_W_END if is_wide else KM_CORRIDOR_END
+		return {"path": model, "yaw": yaw}
+
+	# 2 open sides → straight OR corner
+	if count == 2:
+		# Straight corridor
+		if (left and right):
+			var m = KM_CORRIDOR_WIDE if is_wide else KM_CORRIDOR
+			return {"path": m, "yaw": PI * 0.5}
+		if (up and down):
+			var m = KM_CORRIDOR_WIDE if is_wide else KM_CORRIDOR
+			return {"path": m, "yaw": 0.0}
+		# Corner
+		var yaw = 0.0
+		if   up   and right: yaw = 0.0
+		elif right and down:  yaw = PI * 0.5
+		elif down  and left:  yaw = PI
+		elif left  and up:    yaw = PI * 1.5
+		var m = KM_CORRIDOR_W_CORN if is_wide else KM_CORRIDOR_CORNER
+		return {"path": m, "yaw": yaw}
+
+	# 3 open sides → T-junction
+	if count == 3:
+		var yaw = 0.0
+		if   not left:  yaw = PI * 0.5
+		elif not up:    yaw = PI
+		elif not right: yaw = PI * 1.5
+		var m = KM_CORRIDOR_W_JUNC if is_wide else KM_CORRIDOR_JUNC
+		return {"path": m, "yaw": yaw}
+
+	# 4 open sides → intersection
+	var m = KM_CORRIDOR_W_CROSS if is_wide else KM_CORRIDOR_CROSS
+	return {"path": m, "yaw": 0.0}
+
+func _pick_room_tile(cell: Vector2i, zone: int, rng: RandomNumberGenerator) -> Dictionary:
+	var seed_val = int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 3
+	match zone:
+		VisualZone.LIBRARY_ZONE:
+			return {"path": KM_ROOM_LARGE if seed_val == 0 else KM_ROOM_LARGE_VAR, "yaw": _room_yaw(cell, rng)}
+		VisualZone.ARCHIVE_ZONE:
+			return {"path": KM_ROOM_WIDE, "yaw": _room_yaw(cell, rng)}
+		VisualZone.LANDMARK_ROOM:
+			return {"path": KM_ROOM_LARGE if seed_val < 2 else KM_ROOM_CORNER, "yaw": _room_yaw(cell, rng)}
+		VisualZone.MIRROR_ZONE:
+			return {"path": KM_ROOM_SMALL_VAR, "yaw": _room_yaw(cell, rng)}
+		VisualZone.STRANGE_BUILDING_ZONE:
+			return {"path": KM_ROOM_SMALL if seed_val != 1 else KM_ROOM_SMALL_VAR, "yaw": _room_yaw(cell, rng)}
+		_:
+			# Generic room (story rooms, cave sector)
+			var variants = [KM_ROOM_SMALL, KM_ROOM_SMALL_VAR]
+			return {"path": variants[seed_val % variants.size()], "yaw": _room_yaw(cell, rng)}
+
+func _room_yaw(cell: Vector2i, rng: RandomNumberGenerator) -> float:
+	# Snap to 90° steps based on cell hash for reproducible look
+	return (int(abs(cell.x * 7 + cell.y * 13 + maze_seed)) % 4) * PI * 0.5
+
+# ── Gate / zone entrance ──────────────────────────────────────
+func _place_zone_gate(cell: Vector2i, rng: RandomNumberGenerator):
+	var zone  = zone_entrance_cells[cell]
+	var model = KM_GATE_DOOR if (zone == VisualZone.ARCHIVE_ZONE or zone == VisualZone.STRANGE_BUILDING_ZONE) else KM_GATE
+	var yaw   = _get_transition_yaw(cell, rng)
+	_add_scene_module(
+		"Gate_%d_%d" % [cell.x, cell.y],
+		model,
 		grid_to_world(cell, 0.0),
 		yaw,
-		cell_size * 0.86,
-		0.0
+		cell_size * 0.9,
+		0.0,
+		false
 	)
-	if zone != VisualZone.CAVE_ZONE and rng.randf() < 0.55:
-		_add_column_pair(cell, yaw, rng)
 
-func _add_column_pair(cell: Vector2i, yaw: float, rng: RandomNumberGenerator):
-	var right = Vector3(cos(yaw), 0.0, -sin(yaw))
-	for side in [-1.0, 1.0]:
-		_add_scene_module(
-			"EntranceColumn_%d_%d" % [cell.x, cell.y],
-			DUNGEON_COLUMN_MODEL,
-			grid_to_world(cell, 0.0) + right * side * cell_size * 0.32,
-			yaw + rng.randf_range(-0.08, 0.08),
-			cell_size * 0.42,
-			0.0
-		)
+# ── Landmark pillar (kept as procedural mesh, fits any tile size) ────
+func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
+	var root = Node3D.new()
+	root.name = "Landmark_%d_%d" % [grid_position.x, grid_position.y]
+	root.position = grid_to_world(grid_position, 0.0)
+	root.rotation.y = rng.randf_range(0.0, TAU)
+	_maze_root.add_child(root)
 
+	var base = MeshInstance3D.new()
+	var base_mesh = CylinderMesh.new()
+	base_mesh.top_radius = 0.65
+	base_mesh.bottom_radius = 0.80
+	base_mesh.height = 0.22
+	base_mesh.radial_segments = 10
+	base_mesh.material = material
+	base.mesh = base_mesh
+	base.position.y = 0.11
+	root.add_child(base)
+
+	var pillar = MeshInstance3D.new()
+	var pillar_mesh = CylinderMesh.new()
+	pillar_mesh.top_radius = 0.22
+	pillar_mesh.bottom_radius = 0.28
+	pillar_mesh.height = 1.80
+	pillar_mesh.radial_segments = 8
+	pillar_mesh.material = material
+	pillar.mesh = pillar_mesh
+	pillar.position.y = 1.01
+	root.add_child(pillar)
+
+	var cap = MeshInstance3D.new()
+	var cap_mesh = SphereMesh.new()
+	cap_mesh.radius = 0.30
+	cap_mesh.height = 0.60
+	cap_mesh.radial_segments = 12
+	cap_mesh.rings = 6
+	cap_mesh.material = material
+	cap.mesh = cap_mesh
+	cap.position.y = 2.0
+	root.add_child(cap)
+
+	var light = OmniLight3D.new()
+	light.name = "LandmarkLight"
+	light.position = Vector3(0.0, 2.2, 0.0)
+	light.light_color = Color(0.72, 0.76, 0.64)
+	light.light_energy = 0.52
+	light.omni_range = 5.5
+	light.shadow_enabled = false
+	_setup_flicker(light)
+	root.add_child(light)
+
+# ── Legacy helpers (still called by _build_lights, _build_environment_props) ──
 func _get_wall_yaw_for_dir(dir: Vector2i) -> float:
 	if dir == Vector2i.LEFT:
 		return PI * 0.5
@@ -1304,21 +1460,6 @@ func _get_wall_yaw_for_dir(dir: Vector2i) -> float:
 		return -PI * 0.5
 	if dir == Vector2i.DOWN:
 		return PI
-	return 0.0
-
-func _get_corner_yaw(dirs: Array[Vector2i]) -> float:
-	var has_left = dirs.has(Vector2i.LEFT)
-	var has_right = dirs.has(Vector2i.RIGHT)
-	var has_up = dirs.has(Vector2i.UP)
-	var has_down = dirs.has(Vector2i.DOWN)
-	if has_right and has_down:
-		return PI
-	if has_left and has_down:
-		return PI * 0.5
-	if has_left and has_up:
-		return 0.0
-	if has_right and has_up:
-		return -PI * 0.5
 	return 0.0
 
 func _get_transition_yaw(cell: Vector2i, rng: RandomNumberGenerator) -> float:
@@ -1332,7 +1473,27 @@ func _get_transition_yaw(cell: Vector2i, rng: RandomNumberGenerator) -> float:
 			return _get_wall_yaw_for_dir(dir)
 	return rng.randf_range(0.0, TAU)
 
-func _add_scene_module(node_name: String, model_path: String, position: Vector3, yaw: float, target_footprint: float, ground_offset: float) -> Node3D:
+# ── These old Dungeon/Cave render functions are removed; stubs kept if ──
+# something still calls them indirectly (they simply do nothing now).
+func _should_add_room_ruin(_cell: Vector2i) -> bool:
+	return false  # Kenney tiles supply their own interior geometry
+
+func _add_room_ruin(_grid_position: Vector2i, _material: Material, _rng: RandomNumberGenerator):
+	pass  # Kenney tiles supply their own interior geometry
+
+func _add_shelf_placeholder(_grid_position: Vector2i, _rng: RandomNumberGenerator, _zone: int):
+	pass
+
+func _add_partition_placeholder(_grid_position: Vector2i, _rng: RandomNumberGenerator):
+	pass
+
+func _should_add_cave_feature(_cell: Vector2i) -> bool:
+	return false
+
+func _add_cave_feature(_grid_position: Vector2i, _material: Material, _rng: RandomNumberGenerator):
+	pass
+
+func _add_scene_module(node_name: String, model_path: String, position: Vector3, yaw: float, target_footprint: float, ground_offset: float, fit_to_grid: bool = true) -> Node3D:
 	var scene = load(model_path) as PackedScene
 	if not scene:
 		push_warning("Could not load maze module: %s" % model_path)
@@ -1345,7 +1506,8 @@ func _add_scene_module(node_name: String, model_path: String, position: Vector3,
 	_maze_root.add_child(module)
 	module.global_position = position
 	module.rotation.y = yaw
-	_fit_module_to_grid(module, position, target_footprint, ground_offset)
+	if fit_to_grid:
+		_fit_module_to_grid(module, position, target_footprint, ground_offset)
 	_prepare_module_visuals(module)
 	return module
 
@@ -1570,51 +1732,25 @@ func _add_landmark(grid_position: Vector2i, material: Material, rng: RandomNumbe
 	_setup_flicker(light)
 	root.add_child(light)
 
-func _should_add_room_ruin(cell: Vector2i) -> bool:
-	if cell == start_grid or cell == exit_grid:
-		return false
-	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
-		return false
-	var zone = _get_visual_zone(cell)
-	if zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.ARCHIVE_ZONE or zone == VisualZone.STRANGE_BUILDING_ZONE:
-		return int(abs(cell.x * 23 + cell.y * 41 + maze_seed)) % 2 == 0
-	if zone == VisualZone.LANDMARK_ROOM:
-		return int(abs(cell.x * 23 + cell.y * 41 + maze_seed)) % 3 == 0
-	return int(abs(cell.x * 31 + cell.y * 17 + maze_seed)) % 7 == 0
+func _should_add_room_ruin(_cell: Vector2i) -> bool:
+	return false  # Kenney tiles supply their own interior geometry
 
-func _add_room_ruin(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var zone = _get_visual_zone(grid_position)
-	if zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.ARCHIVE_ZONE:
-		_add_shelf_placeholder(grid_position, rng, zone)
-		return
-	if zone == VisualZone.STRANGE_BUILDING_ZONE:
-		_add_partition_placeholder(grid_position, rng)
-		return
-	if zone == VisualZone.LANDMARK_ROOM and rng.randf() < 0.55:
-		_add_scene_module("RoomColumn_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_COLUMN_MODEL, grid_to_world(grid_position, 0.0), rng.randf_range(0.0, TAU), cell_size * 0.44, 0.0)
-	else:
-		_add_scene_module("RoomPartition_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0), rng.randf_range(0.0, TAU), cell_size * 0.68, 0.0)
+func _add_room_ruin(_grid_position: Vector2i, _material: Material, _rng: RandomNumberGenerator):
+	pass  # Kenney tiles supply their own interior geometry
 
-func _add_shelf_placeholder(grid_position: Vector2i, rng: RandomNumberGenerator, zone: int):
-	var offset = Vector3(rng.randf_range(-1.45, 1.45), 0.0, rng.randf_range(-1.45, 1.45))
-	var yaw = 0.0 if rng.randf() < 0.5 else PI * 0.5
-	var node_name = "ArchiveShelf_%d_%d" if zone == VisualZone.ARCHIVE_ZONE else "LibraryShelf_%d_%d"
-	_add_scene_module(node_name % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0) + offset, yaw, cell_size * 0.62, 0.0)
+func _add_shelf_placeholder(_grid_position: Vector2i, _rng: RandomNumberGenerator, _zone: int):
+	pass  # Kenney room tiles have built-in shelf aesthetics
 
-func _add_partition_placeholder(grid_position: Vector2i, rng: RandomNumberGenerator):
-	var yaw = 0.0 if rng.randf() < 0.5 else PI * 0.5
-	_add_scene_module("BuildingPartition_%d_%d" % [grid_position.x, grid_position.y], DUNGEON_WALL_MODEL, grid_to_world(grid_position, 0.0), yaw, cell_size * 0.62, 0.0)
+func _add_partition_placeholder(_grid_position: Vector2i, _rng: RandomNumberGenerator):
+	pass  # Kenney room tiles have built-in partitions
 
-func _should_add_cave_feature(cell: Vector2i) -> bool:
-	if pickup_cells.values().has(cell) or note_cells.has(cell) or landmark_cells.has(cell):
-		return false
-	return int(abs(cell.x * 47 + cell.y * 19 + maze_seed)) % 5 == 0
+func _should_add_cave_feature(_cell: Vector2i) -> bool:
+	return false  # Kenney tiles don't need separate rock clusters
 
-func _add_cave_feature(grid_position: Vector2i, material: Material, rng: RandomNumberGenerator):
-	var offset = Vector3(rng.randf_range(-1.8, 1.8), 0.0, rng.randf_range(-1.8, 1.8))
-	_add_scene_module("CaveRockCluster_%d_%d" % [grid_position.x, grid_position.y], CAVE_ROCK_CLUSTER_MODEL, grid_to_world(grid_position, 0.0) + offset, rng.randf_range(0.0, TAU), cell_size * rng.randf_range(0.42, 0.68), 0.0)
+func _add_cave_feature(_grid_position: Vector2i, _material: Material, _rng: RandomNumberGenerator):
+	pass  # Kenney tiles don't need separate rock clusters
 
-func _should_add_floor_detail(cell: Vector2i) -> bool:
+func _should_add_floor_detail(_cell: Vector2i) -> bool:
 	return false
 
 func _build_environment_props():
@@ -1745,17 +1881,18 @@ func _build_lights():
 	var grid_w = radar_grid[0].length()
 	var grid_h = radar_grid.size()
 	var path_light_count = 0
-	var max_path_lights = 4
+	# More lights for smaller Kenney cells (4 m vs old 6.4 m)
+	var max_path_lights = 14
 
-	_add_map_light("StartLight", start_grid, Color(0.74, 0.74, 0.66), 0.95, 8.5, false)
-	_add_map_light("ExitLight", exit_grid, Color(0.16, 0.82, 0.46), 1.7, 10.5, false)
+	_add_map_light("StartLight", start_grid, Color(0.74, 0.80, 0.68), 1.2, 9.0, false)
+	_add_map_light("ExitLight",  exit_grid,  Color(0.16, 0.85, 0.46), 2.0, 11.0, false)
 
 	for y in range(1, grid_h - 1):
 		for x in range(1, grid_w - 1):
 			var cell = Vector2i(x, y)
 			if not _is_walkable_cell(radar_grid, cell):
 				continue
-			if cell.distance_to(start_grid) < 6.0:
+			if cell.distance_to(start_grid) < 4.0:
 				continue
 			if pickup_cells.values().has(cell) or landmark_cells.has(cell):
 				continue
@@ -1763,77 +1900,36 @@ func _build_lights():
 				continue
 
 			var neighbors = _count_path_neighbors(radar_grid, cell)
-			var chance = 0.012
-			if room_cells.has(cell):
-				chance = 0.0
-			elif neighbors == 1 or neighbors >= 3:
-				chance = 0.035
+			var zone = _get_visual_zone(cell)
+			var chance = 0.0
+			# Junctions and dead-ends look good with light
+			if neighbors == 1 or neighbors >= 3:
+				chance = 0.055
+			# Special rooms always lit
+			elif zone == VisualZone.LANDMARK_ROOM or zone == VisualZone.LIBRARY_ZONE or zone == VisualZone.ARCHIVE_ZONE:
+				chance = 0.12
+			# Normal corridors occasionally lit
+			elif neighbors == 2:
+				chance = 0.018
 
 			if light_rng.randf() < chance:
-				var energy = light_rng.randf_range(0.32, 0.58)
-				var range_value = light_rng.randf_range(5.8, 7.4)
-				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(0.70, 0.70, 0.62), energy, range_value, false)
+				var energy = light_rng.randf_range(0.4, 0.72)
+				var range_value = light_rng.randf_range(5.0, 7.0)
+				_add_map_light("PathLight_%d_%d" % [x, y], cell, Color(0.82, 0.74, 0.56), energy, range_value, false)
 				path_light_count += 1
 
 func _add_map_light(node_name: String, cell: Vector2i, color: Color, energy: float, range_value: float, casts_shadow: bool):
-	var mount_position = _get_light_mount_position(cell)
+	# Place light floating inside the Kenney tile (ceiling height ~2.8 m)
+	var center = grid_to_world(cell, 0.0)
 	var lamp = OmniLight3D.new()
 	lamp.name = node_name
-	lamp.position = mount_position + Vector3(0.0, 2.55, 0.0)
+	lamp.position = center + Vector3(0.0, 2.2, 0.0)
 	lamp.light_color = color
 	lamp.light_energy = energy
 	lamp.omni_range = range_value
 	lamp.shadow_enabled = casts_shadow
 	_setup_flicker(lamp)
 	_maze_root.add_child(lamp)
-	_add_torch_prop(node_name + "Torch", cell, mount_position)
-
-func _add_torch_prop(node_name: String, cell: Vector2i, mount_position: Vector3):
-	var torch = Node3D.new()
-	torch.name = node_name
-	torch.position = mount_position
-	var center = grid_to_world(cell, 0.0)
-	var look_direction = center - mount_position
-	if look_direction.length() > 0.01:
-		torch.rotation.y = atan2(-look_direction.x, -look_direction.z)
-	else:
-		torch.rotation.y = deg_to_rad(float(abs(cell.x * 37 + cell.y * 19 + maze_seed) % 360))
-	torch.set_script(PROP_MODEL_SCRIPT)
-	torch.set("model_path", TORCH_MODEL_PATH)
-	torch.set("target_height", 1.55)
-	torch.set("yaw_degrees", 0.0)
-	torch.set("ground_y_offset", 0.0)
-
-	_maze_root.add_child(torch)
-
-func _get_light_mount_position(cell: Vector2i) -> Vector3:
-	var offset = Vector3.ZERO
-	var side = cell_size * 0.38
-	var walls: Array[Vector2i] = []
-	for dir in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		if not _is_walkable_cell(radar_grid, cell + dir):
-			walls.append(dir)
-
-	var x_dir = 0
-	var z_dir = 0
-	for wall_dir in walls:
-		if wall_dir == Vector2i.LEFT:
-			x_dir = -1
-		elif wall_dir == Vector2i.RIGHT:
-			x_dir = 1
-		elif wall_dir == Vector2i.UP:
-			z_dir = -1
-		elif wall_dir == Vector2i.DOWN:
-			z_dir = 1
-
-	if x_dir == 0:
-		x_dir = -1 if int(abs(cell.x * 31 + maze_seed)) % 2 == 0 else 1
-	if z_dir == 0:
-		z_dir = -1 if int(abs(cell.y * 29 + maze_seed)) % 2 == 0 else 1
-
-	offset.x = float(x_dir) * side
-	offset.z = float(z_dir) * side
-	return grid_to_world(cell, 0.0) + offset
 
 func _setup_flicker(light: Light3D):
 	var flicker_script = load("res://flickering_light.gd")
@@ -1897,7 +1993,8 @@ func _place_monsters():
 				int(round(lerp(float(start_grid.y), float(exit_grid.y), t)))
 			)
 			cell = _find_reachable_cell_near(radar_grid, fallback, reserved, int(route_length * 0.28))
-		reserved[cell] = true
+		if cell != Vector2i(-1, -1):
+			reserved[cell] = true
 		_move_node_to_grid(monster_paths[i], cell, 0.0)
 
 func _move_node_to_grid(path, grid_position: Vector2i, y: float):
@@ -1928,7 +2025,10 @@ func _remove_test_arena():
 			node.queue_free()
 
 func _register_visual_zones():
-	_register_visual_zone("cave_core", VisualZone.CAVE_ZONE, cave_cells.keys())
+	var cave_key_list: Array[Vector2i] = []
+	for c in cave_cells.keys():
+		cave_key_list.append(c as Vector2i)
+	_register_visual_zone("cave_core", VisualZone.CAVE_ZONE, cave_key_list)
 
 func _register_visual_zone(zone_name: String, zone_type: int, cells: Array):
 	if cells.is_empty():
@@ -2285,10 +2385,11 @@ func _is_pickup_safe_cell(rows: Array[String], cell: Vector2i) -> bool:
 		return false
 	if _count_path_neighbors(rows, cell) == 0:
 		return false
+	# Require at least one wall neighbour so the item feels "placed" against something
 	for dir in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
 		if _get_cell(rows, cell + dir) == WALL:
-			continue
-	return true
+			return true
+	return false
 
 func _grid_distance_squared(a: Vector2i, b: Vector2i) -> float:
 	var dx = float(a.x - b.x)
