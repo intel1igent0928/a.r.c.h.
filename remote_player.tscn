@@ -22,10 +22,7 @@ position = Vector3(0, 0.875, 0)
 shape = SubResource("CapsuleShape3D_1")
 
 [node name="NameLabel3D" type="Label3D" parent="."]
-position = Vector3(0, 1.8, 0)
-text = "Игрок 2"
+position = Vector3(0, 2.15, 0)
+text = "Friend"
 font_size = 48
 billboard = 1
-
-[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
-replication_config = null

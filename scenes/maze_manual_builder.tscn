@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/maze_manual_builder.gd" id="1_builder"]
 [ext_resource type="Script" path="res://scripts/builder_camera.gd" id="2_camera"]
@@ -28,6 +28,13 @@ size = Vector2(2400, 2400)
 albedo_color = Color(0.26, 0.27, 0.25, 1)
 roughness = 0.9
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(2400, 0.1, 2400)
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_builder"]
+radius = 0.35
+height = 1.75
+
 [node name="MazeManualBuilder" type="Node3D"]
 script = ExtResource("1_builder")
 
@@ -44,13 +51,25 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.01, 0)
 mesh = SubResource("PlaneMesh_ground")
 surface_material_override/0 = SubResource("Material_ground")
 
+[node name="GroundBody" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="GroundBody"]
+position = Vector3(0, -0.06, 0)
+shape = SubResource("BoxShape3D_ground")
+
 [node name="GridVisual" type="MeshInstance3D" parent="."]
 
-[node name="BuilderCamera" type="Camera3D" parent="."]
+[node name="BuilderCamera" type="CharacterBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.970296, 0.241922, 0, -0.241922, 0.970296, 0, 18, 34)
+script = ExtResource("2_camera")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BuilderCamera"]
+position = Vector3(0, 0.875, 0)
+shape = SubResource("CapsuleShape3D_builder")
+
+[node name="Camera3D" type="Camera3D" parent="BuilderCamera"]
 current = true
 fov = 82.0
-script = ExtResource("2_camera")
 
 [node name="PlacedObjects" type="Node3D" parent="."]
 

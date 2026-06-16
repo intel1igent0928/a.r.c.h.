@@ -1,0 +1,228 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/voxel_builder.gd" id="1_vb"]
+[ext_resource type="Script" path="res://scripts/builder_camera.gd" id="2_cam"]
+[ext_resource type="Script" path="res://scripts/voxel_builder_ui.gd" id="3_ui"]
+[ext_resource type="Shader" path="res://shaders/pixel_art_post.gdshader" id="4_shader"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
+sky_top_color = Color(0.38, 0.55, 0.85, 1)
+sky_horizon_color = Color(0.70, 0.82, 1.0, 1)
+ground_bottom_color = Color(0.22, 0.18, 0.12, 1)
+ground_horizon_color = Color(0.50, 0.40, 0.28, 1)
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMat")
+
+[sub_resource type="Environment" id="Env"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 2
+ambient_light_sky_contribution = 0.85
+ambient_light_color = Color(0.8, 0.85, 1.0, 1)
+ambient_light_energy = 1.2
+tonemap_mode = 1
+tonemap_exposure = 1.0
+glow_enabled = false
+
+[sub_resource type="CapsuleShape3D" id="CamShape"]
+radius = 0.3
+height = 1.6
+
+[sub_resource type="ShaderMaterial" id="PostMat"]
+shader = ExtResource("4_shader")
+shader_parameter/pixel_size = 2.5
+shader_parameter/outline_str = 0.2
+shader_parameter/vignette = 0.3
+shader_parameter/saturation = 1.1
+shader_parameter/contrast = 1.05
+
+[sub_resource type="BoxMesh" id="GroundMesh"]
+size = Vector3(200, 0.1, 200)
+
+[sub_resource type="StandardMaterial3D" id="GroundMat"]
+albedo_color = Color(0.30, 0.25, 0.18, 1)
+roughness = 0.95
+metallic = 0.0
+
+[sub_resource type="BoxShape3D" id="GroundShape"]
+size = Vector3(200, 0.1, 200)
+
+[node name="VoxelBuilder" type="Node3D"]
+script = ExtResource("1_vb")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.433, 0.25, 0, 0.5, 0.866, -0.5, -0.75, 0.433, 0, 30, 0)
+light_color = Color(1.0, 0.95, 0.80, 1)
+light_energy = 2.2
+shadow_enabled = true
+shadow_blur = 1.5
+
+[node name="FillLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866, -0.2, -0.25, 0, 0.78, -0.62, 0.5, -0.35, -0.80, 0, 20, 0)
+light_color = Color(0.55, 0.65, 1.0, 1)
+light_energy = 0.8
+shadow_enabled = false
+
+[node name="GroundBody" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+
+[node name="GroundMesh" type="MeshInstance3D" parent="GroundBody"]
+mesh = SubResource("GroundMesh")
+surface_material_override/0 = SubResource("GroundMat")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="GroundBody"]
+shape = SubResource("GroundShape")
+
+[node name="GridMap" type="GridMap" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+cell_size = Vector3(2, 2, 2)
+
+[node name="DecoGrid" type="GridMap" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+cell_size = Vector3(2, 2, 2)
+
+[node name="GridVisual" type="MeshInstance3D" parent="."]
+
+[node name="PreviewRoot" type="Node3D" parent="."]
+
+[node name="BuilderCamera" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.94, -0.342, 0, 0.342, 0.94, 0, 6, 14)
+script = ExtResource("2_cam")
+fly_speed = 18.0
+mouse_sensitivity = 0.002
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BuilderCamera"]
+position = Vector3(0, 0.8, 0)
+shape = SubResource("CamShape")
+
+[node name="Camera3D" type="Camera3D" parent="BuilderCamera"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+current = true
+fov = 75.0
+
+[node name="VoxelUI" type="CanvasLayer" parent="."]
+script = ExtResource("3_ui")
+
+[node name="UIRoot" type="Control" parent="VoxelUI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="TopBar" type="PanelContainer" parent="VoxelUI/UIRoot"]
+anchor_right = 1.0
+offset_bottom = 52.0
+
+[node name="TopHBox" type="HBoxContainer" parent="VoxelUI/UIRoot/TopBar"]
+layout_mode = 2
+
+[node name="BlockName" type="Label" parent="VoxelUI/UIRoot/TopBar/TopHBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "🧱 Brick Wall"
+
+[node name="StatusBar" type="Label" parent="VoxelUI/UIRoot/TopBar/TopHBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Layer: 0  |  Rot: 0°  |  Blocks: 0"
+horizontal_alignment = 2
+
+[node name="BottomBar" type="PanelContainer" parent="VoxelUI/UIRoot"]
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -120.0
+
+[node name="BottomVBox" type="VBoxContainer" parent="VoxelUI/UIRoot/BottomBar"]
+layout_mode = 2
+
+[node name="BlockPalette" type="HBoxContainer" parent="VoxelUI/UIRoot/BottomBar/BottomVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+alignment = 1
+
+[node name="ToolbarHBox" type="HBoxContainer" parent="VoxelUI/UIRoot/BottomBar/BottomVBox"]
+layout_mode = 2
+alignment = 1
+
+[node name="BtnSave" type="Button" parent="VoxelUI/UIRoot/BottomBar/BottomVBox/ToolbarHBox"]
+layout_mode = 2
+text = "💾 Save"
+custom_minimum_size = Vector2(90, 34)
+
+[node name="BtnLoad" type="Button" parent="VoxelUI/UIRoot/BottomBar/BottomVBox/ToolbarHBox"]
+layout_mode = 2
+text = "📂 Load"
+custom_minimum_size = Vector2(90, 34)
+
+[node name="BtnExport" type="Button" parent="VoxelUI/UIRoot/BottomBar/BottomVBox/ToolbarHBox"]
+layout_mode = 2
+text = "📦 Export"
+custom_minimum_size = Vector2(90, 34)
+
+[node name="BtnClear" type="Button" parent="VoxelUI/UIRoot/BottomBar/BottomVBox/ToolbarHBox"]
+layout_mode = 2
+text = "🗑️ Clear"
+custom_minimum_size = Vector2(90, 34)
+
+[node name="BtnMenu" type="Button" parent="VoxelUI/UIRoot/BottomBar/BottomVBox/ToolbarHBox"]
+layout_mode = 2
+text = "🏠 Menu"
+custom_minimum_size = Vector2(90, 34)
+
+[node name="HintPanel" type="PanelContainer" parent="VoxelUI/UIRoot"]
+unique_name_in_owner = true
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 8.0
+offset_top = -120.0
+offset_right = 200.0
+offset_bottom = 120.0
+
+[node name="HintLabel" type="Label" parent="VoxelUI/UIRoot/HintPanel"]
+layout_mode = 2
+text = "LMB – Place\nRMB – Remove\nQ/E – Block\nScroll – Block\nR – Rotate\nX/Z – Layer\nTab – Mouse\nEsc – Menu"
+
+[node name="Crosshair" type="ColorRect" parent="VoxelUI/UIRoot"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -2.0
+offset_top = -2.0
+offset_right = 2.0
+offset_bottom = 2.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(1, 1, 1, 0.75)
+
+[node name="CoordLabel" type="Label" parent="VoxelUI/UIRoot"]
+unique_name_in_owner = true
+anchor_right = 1.0
+offset_top = 56.0
+offset_bottom = 80.0
+text = ""
+horizontal_alignment = 1
+
+[node name="ToastLabel" type="Label" parent="VoxelUI/UIRoot"]
+unique_name_in_owner = true
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 0.3
+anchor_bottom = 0.3
+offset_left = -150.0
+offset_right = 150.0
+offset_top = -24.0
+offset_bottom = 24.0
+text = ""
+horizontal_alignment = 1

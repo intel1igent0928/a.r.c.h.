@@ -57,14 +57,7 @@ func _setup_lobby() -> void:
 	NetworkManager.player_disconnected.connect(_on_net_player_disconnected)
 	NetworkManager.server_disconnected.connect(_on_net_server_disconnected)
 	multiplayer.connected_to_server.connect(_on_net_connected_to_server)
-	# For host, we spawn our own avatar immediately when the server is created
-	# (We'll hook into NetworkManager for this since it handles ENet creation)
-	var old_create = NetworkManager.create_server
-	NetworkManager.create_server = func(port = NetworkManager.DEFAULT_PORT):
-		var err = old_create.call(port)
-		if err == OK:
-			_on_net_connected_to_server()
-		return err
+	NetworkManager.server_created.connect(_on_net_connected_to_server)
 
 func _process(delta: float):
 	threat = max(threat - delta * 0.02, 0.0)
@@ -371,13 +364,9 @@ func _build_ui():
 	_add_body(_menu_panel, START_TEXT)
 	_add_button(_menu_panel, "Start", start_game)
 	_add_button(_menu_panel, "Multiplayer", _show_multiplayer_lobby)
+	_add_button(_menu_panel, "Manual Builder", _show_manual_builder)
 	_add_button(_menu_panel, "Settings", _show_settings)
 	_add_button(_menu_panel, "Quit", _quit_game)
-
-func _show_multiplayer_lobby() -> void:
-	_menu_panel.visible = false
-	if _lobby_ui:
-		_lobby_ui.show_lobby()
 
 	_pause_panel = _make_panel("PauseMenu", "VBox")
 	_add_title(_pause_panel, "PAUSED")
@@ -401,6 +390,14 @@ func _show_multiplayer_lobby() -> void:
 	_settings_panel.visible = false
 
 	_update_objective()
+
+func _show_multiplayer_lobby() -> void:
+	_menu_panel.visible = false
+	if _lobby_ui:
+		_lobby_ui.show_lobby()
+
+func _show_manual_builder() -> void:
+	get_tree().change_scene_to_file("res://scenes/maze_manual_builder.tscn")
 
 func _make_panel(node_name: String, box_name: String) -> Panel:
 	var panel = Panel.new()

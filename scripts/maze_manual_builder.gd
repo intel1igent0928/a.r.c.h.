@@ -1,9 +1,13 @@
 extends Node3D
 
 const SAVE_PATH := "res://saved_mazes/manual_maze.json"
+const EXPORT_SCENE_PATH := "res://saved_mazes/manual_maze_built.tscn"
 const SCALE_PREFS_PATH := "res://saved_mazes/builder_model_scales.json"
 const BUILDER_GROUP := "builder_placed"
 const GRID_SIZES := [0.5, 1.0, 2.0, 4.0]
+const HEIGHT_STEP_PER_SECOND := 2.5
+const SCALE_STEP_PER_SECOND := 0.35
+const SCALE_FAST_MULTIPLIER := 4.0
 
 const ASSET_PACKS := {
 	"Dungeon": [
@@ -121,7 +125,8 @@ const ASSET_PACKS := {
 	]
 }
 
-@onready var _camera: Camera3D = $BuilderCamera
+@onready var _camera_controller: Node3D = $BuilderCamera
+@onready var _camera: Camera3D = $BuilderCamera/Camera3D
 @onready var _placed_root: Node3D = $PlacedObjects
 @onready var _preview_root: Node3D = $PreviewRoot
 @onready var _browser: CanvasLayer = $AssetPackBrowser
@@ -135,25 +140,83 @@ var _model_scales := {}
 var _height_offset := 0.0
 var _preview: Node3D
 var _preview_position := Vector3.ZERO
+var _preview_bottom_offset := 0.0
 
+# ── Multiplayer ───────────────────────────
+const REMOTE_PLAYER_SCENE = preload("res://remote_player.tscn")
+var _remote_players := {} # peer_id -> RemotePlayer
+var _is_online := false
+var _local_avatar_index := 0
+var _net_update_timer := 0.0
+var _test_mode := false
+var _last_mouse_captured := false
+var _remote_root: Node3D
+var _last_scale_pref_save_time := 0.0
 
 func _ready() -> void:
 	_browser.setup_pack_names(ASSET_PACKS.keys())
 	_browser.pack_selected.connect(_on_pack_selected)
+	_browser.host_requested.connect(_on_host_requested)
+	_browser.join_requested.connect(_on_join_requested)
+	_browser.disconnect_requested.connect(_on_disconnect_requested)
+	_browser.save_requested.connect(_save_maze)
+	_browser.export_scene_requested.connect(_export_built_scene)
+	_browser.load_requested.connect(func(): _load_maze(true))
+	_browser.clear_requested.connect(func(): _clear_placed_objects(true))
+	_browser.test_mode_toggled.connect(_set_test_mode)
+	_browser.capture_requested.connect(_capture_builder_mouse)
 	_browser.set_selected_pack(_current_pack)
 	_load_model_scale_preferences()
 	_build_grid_visual()
 	_rebuild_preview()
 	_update_ui()
 
+	# Load existing map (continue tomorrow feature)
+	_load_maze()
 
-func _physics_process(_delta: float) -> void:
+	# Set unified spawn point for the camera
+	if is_instance_valid(_camera_controller):
+		_camera_controller.global_position = Vector3(0, 10, 0)
+
+	_remote_root = Node3D.new()
+	_remote_root.name = "RemotePlayers"
+	add_child(_remote_root)
+	randomize()
+	_local_avatar_index = randi() % 2
+	_last_mouse_captured = Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED
+	_browser.update_input_status(_last_mouse_captured, _test_mode)
+
+	NetworkManager.player_connected.connect(_on_net_player_connected)
+	NetworkManager.player_disconnected.connect(_on_net_player_disconnected)
+	NetworkManager.connection_failed.connect(_on_net_connection_failed)
+	NetworkManager.server_disconnected.connect(_on_net_server_disconnected)
+	NetworkManager.server_created.connect(_on_net_connected_to_server)
+	multiplayer.connected_to_server.connect(_on_net_connected_to_server)
+
+func _physics_process(delta: float) -> void:
+	_update_continuous_adjustments(delta)
 	_update_preview_position()
+
+	var captured := Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED
+	if captured != _last_mouse_captured:
+		_last_mouse_captured = captured
+		_browser.update_input_status(captured, _test_mode)
+
+	if _is_online:
+		_net_update_timer -= delta
+		if _net_update_timer <= 0.0:
+			_net_update_timer = 0.05
+			_rpc_update_remote_player.rpc(
+				multiplayer.get_unique_id(),
+				_get_builder_player_position(),
+				_get_builder_player_yaw(),
+				_local_avatar_index
+			)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		if event.button_index == MOUSE_BUTTON_LEFT:
+		if event.button_index == MOUSE_BUTTON_LEFT and not _test_mode:
 			_place_current_model()
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
@@ -184,11 +247,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_apply_preview_transform()
 			_update_ui()
 		KEY_MINUS:
-			_set_current_model_scale(max(0.01, _get_current_model_scale() - 0.1))
+			_set_current_model_scale(max(0.001, _get_current_model_scale() - _get_scale_key_step(event.shift_pressed)))
 			_apply_preview_transform()
 			_update_ui()
 		KEY_EQUAL:
-			_set_current_model_scale(_get_current_model_scale() + 0.1)
+			_set_current_model_scale(_get_current_model_scale() + _get_scale_key_step(event.shift_pressed))
 			_apply_preview_transform()
 			_update_ui()
 		KEY_BACKSPACE:
@@ -196,11 +259,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_apply_preview_transform()
 			_update_ui()
 		KEY_X:
-			_height_offset += 0.25
+			_height_offset += 0.05
 			_update_preview_position()
 			_update_ui()
 		KEY_Z:
-			_height_offset -= 0.25
+			_height_offset -= 0.05
 			_update_preview_position()
 			_update_ui()
 		KEY_HOME:
@@ -208,11 +271,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_update_preview_position()
 			_update_ui()
 		KEY_DELETE:
-			_clear_placed_objects()
+			_clear_placed_objects(true)
 		KEY_F5:
 			_save_maze()
+		KEY_F6:
+			_export_built_scene()
 		KEY_F9:
-			_load_maze()
+			_load_maze(true)
 
 
 func _on_pack_selected(pack_name: String) -> void:
@@ -243,10 +308,45 @@ func _set_grid_index(index: int) -> void:
 	_update_ui()
 
 
+func _update_continuous_adjustments(delta: float) -> void:
+	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		return
+	if _test_mode:
+		return
+
+	var changed_height := false
+	if Input.is_key_pressed(KEY_X):
+		_height_offset += HEIGHT_STEP_PER_SECOND * delta
+		changed_height = true
+	if Input.is_key_pressed(KEY_Z):
+		_height_offset -= HEIGHT_STEP_PER_SECOND * delta
+		changed_height = true
+
+	var scale_delta := 0.0
+	var scale_speed := SCALE_STEP_PER_SECOND
+	if Input.is_key_pressed(KEY_SHIFT):
+		scale_speed *= SCALE_FAST_MULTIPLIER
+	if Input.is_key_pressed(KEY_EQUAL):
+		scale_delta += scale_speed * delta
+	if Input.is_key_pressed(KEY_MINUS):
+		scale_delta -= scale_speed * delta
+
+	if absf(scale_delta) > 0.0001:
+		_set_current_model_scale(max(0.001, _get_current_model_scale() + scale_delta), false)
+		_apply_preview_transform()
+		_update_ui()
+		_save_model_scale_preferences_deferred()
+
+	if changed_height:
+		_update_preview_position()
+		_update_ui()
+
+
 func _rebuild_preview() -> void:
 	if _preview != null:
 		_preview.queue_free()
 		_preview = null
+	_preview_bottom_offset = 0.0
 
 	var asset := _get_current_asset()
 	_preview = _instantiate_asset(asset)
@@ -256,6 +356,10 @@ func _rebuild_preview() -> void:
 	_preview.name = "GhostPreview"
 	_preview_root.add_child(_preview)
 	_make_preview_ghost(_preview)
+	var bounds := _calculate_local_aabb(_preview)
+	if bounds.size.length() >= 0.01:
+		_preview_bottom_offset = bounds.position.y
+	_preview.visible = not _test_mode
 	_apply_preview_transform()
 
 
@@ -265,18 +369,37 @@ func _update_preview_position() -> void:
 	var ray_direction := _camera.project_ray_normal(viewport_center)
 	var hit := ray_origin + ray_direction * 80.0
 
+	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + ray_direction * 500.0)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	if _preview != null:
+		query.exclude = _collect_collision_rids(_preview)
+
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if not result.is_empty():
+		hit = result["position"]
+
 	if absf(ray_direction.y) > 0.0001:
 		var t := -ray_origin.y / ray_direction.y
-		if t > 0.0:
+		if result.is_empty() and t > 0.0:
 			hit = ray_origin + ray_direction * t
 
 	var grid_size := _get_grid_size()
 	_preview_position = Vector3(
 		_snap_to_grid(hit.x, grid_size),
-		_height_offset,
+		hit.y + _height_offset - _preview_bottom_offset * _get_current_model_scale(),
 		_snap_to_grid(hit.z, grid_size)
 	)
 	_apply_preview_transform()
+
+
+func _collect_collision_rids(root: Node) -> Array[RID]:
+	var result: Array[RID] = []
+	if root is CollisionObject3D:
+		result.append(root.get_rid())
+	for child in root.get_children():
+		result.append_array(_collect_collision_rids(child))
+	return result
 
 
 func _apply_preview_transform() -> void:
@@ -289,14 +412,28 @@ func _apply_preview_transform() -> void:
 
 
 func _place_current_model() -> void:
-	var asset := _get_current_asset()
-	_spawn_placed_object(
-		_current_pack,
-		asset["name"],
-		_preview_position,
-		_get_rotation_y(),
-		_get_current_model_scale()
-	)
+	var asset = _get_current_asset()
+	var pack_name: String = _current_pack
+	var model_name: String = asset["name"]
+	var pos: Vector3 = _preview_position
+	var rot_y: float = _get_rotation_y()
+	var scl: float = _get_current_model_scale()
+	var unique_name := "Obj_%d_%d" % [Time.get_ticks_usec(), randi() % 1000]
+
+	# Spawn locally
+	var wrapper = _spawn_placed_object(pack_name, model_name, pos, rot_y, scl)
+	if wrapper:
+		wrapper.name = unique_name
+
+	# Tell others
+	if _is_online:
+		_rpc_spawn_object.rpc(unique_name, pack_name, model_name, pos, rot_y, scl)
+
+@rpc("any_peer", "reliable", "call_remote")
+func _rpc_spawn_object(object_name: String, pack_name: String, model_name: String, pos: Vector3, rot_y: float, scl: float) -> void:
+	var wrapper = _spawn_placed_object(pack_name, model_name, pos, rot_y, scl)
+	if wrapper:
+		wrapper.name = object_name
 
 
 func _spawn_placed_object(pack_name: String, model_name: String, position: Vector3, rotation_y: float, object_scale: float) -> Node3D:
@@ -344,17 +481,46 @@ func _delete_looked_at_object() -> void:
 	var node: Node = result["collider"]
 	while node != null:
 		if node.is_in_group(BUILDER_GROUP):
+			# Remove locally
+			var node_name = node.name
 			node.queue_free()
+			# Tell others
+			if _is_online:
+				_rpc_delete_object.rpc(node_name)
 			return
 		node = node.get_parent()
 
+@rpc("any_peer", "reliable", "call_remote")
+func _rpc_delete_object(node_name: String) -> void:
+	var node = _placed_root.get_node_or_null(NodePath(node_name))
+	if node and node.is_in_group(BUILDER_GROUP):
+		node.queue_free()
 
-func _clear_placed_objects() -> void:
+
+func _clear_placed_objects(sync_network := false) -> void:
+	if sync_network and _is_online and not multiplayer.is_server():
+		push_warning("Only the host can clear the shared maze.")
+		_browser.update_net_status("Only host can clear")
+		return
+
 	for child in _placed_root.get_children():
 		child.queue_free()
 
+	if sync_network and _is_online and multiplayer.is_server():
+		_rpc_clear_all_objects.rpc()
+
+
+@rpc("authority", "reliable", "call_remote")
+func _rpc_clear_all_objects() -> void:
+	_clear_placed_objects(false)
+
 
 func _save_maze() -> void:
+	if _is_online and not multiplayer.is_server():
+		push_warning("Only the host can save the maze.")
+		_browser.update_net_status("Only host can save")
+		return
+
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://saved_mazes"))
 
 	var data := []
@@ -377,9 +543,58 @@ func _save_maze() -> void:
 
 	file.store_string(JSON.stringify(data, "\t"))
 	file.close()
+	_browser.update_net_status("Saved JSON")
 
 
-func _load_maze() -> void:
+func _export_built_scene() -> void:
+	if _is_online and not multiplayer.is_server():
+		push_warning("Only the host can export the shared maze.")
+		_browser.update_net_status("Only host can export")
+		return
+
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://saved_mazes"))
+
+	var export_root := Node3D.new()
+	export_root.name = "ManualMazeBuilt"
+	for child in _placed_root.get_children():
+		if not child.is_in_group(BUILDER_GROUP):
+			continue
+		var copy := child.duplicate()
+		copy.name = child.name
+		export_root.add_child(copy)
+		copy.owner = export_root
+		_set_scene_owner_recursive(copy, export_root)
+
+	var packed := PackedScene.new()
+	var pack_error := packed.pack(export_root)
+	if pack_error != OK:
+		export_root.free()
+		push_warning("Could not pack built maze scene: %s" % error_string(pack_error))
+		_browser.update_net_status("Export failed")
+		return
+
+	var save_error := ResourceSaver.save(packed, EXPORT_SCENE_PATH)
+	export_root.free()
+	if save_error != OK:
+		push_warning("Could not export built maze scene: %s" % error_string(save_error))
+		_browser.update_net_status("Export failed")
+		return
+
+	_browser.update_net_status("Exported scene")
+
+
+func _set_scene_owner_recursive(node: Node, scene_owner: Node) -> void:
+	for child in node.get_children():
+		child.owner = scene_owner
+		_set_scene_owner_recursive(child, scene_owner)
+
+
+func _load_maze(sync_network := false) -> void:
+	if sync_network and _is_online and not multiplayer.is_server():
+		push_warning("Only the host can load the shared maze.")
+		_browser.update_net_status("Only host can load")
+		return
+
 	if not FileAccess.file_exists(SAVE_PATH):
 		push_warning("No saved maze found at %s" % SAVE_PATH)
 		return
@@ -394,7 +609,7 @@ func _load_maze() -> void:
 		push_warning("Saved maze JSON is not an array.")
 		return
 
-	_clear_placed_objects()
+	_clear_placed_objects(false)
 	for entry in parsed:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
@@ -405,6 +620,9 @@ func _load_maze() -> void:
 		var rotation := _array_to_vector3(entry.get("rotation", [0.0, 0.0, 0.0]))
 		var object_scale := float(entry.get("scale", 1.0))
 		_spawn_placed_object(pack_name, model_name, position, rotation.y, object_scale)
+
+	if sync_network and _is_online and multiplayer.is_server():
+		_broadcast_full_state()
 
 
 func _get_current_asset() -> Dictionary:
@@ -430,8 +648,21 @@ func _get_current_model_scale() -> float:
 	return default_scale
 
 
-func _set_current_model_scale(value: float) -> void:
-	_model_scales[_get_current_asset_key()] = max(0.01, value)
+func _set_current_model_scale(value: float, save_now := true) -> void:
+	_model_scales[_get_current_asset_key()] = max(0.001, value)
+	if save_now:
+		_save_model_scale_preferences()
+
+
+func _get_scale_key_step(fast := false) -> float:
+	return 0.05 if fast else 0.01
+
+
+func _save_model_scale_preferences_deferred() -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_scale_pref_save_time < 0.25:
+		return
+	_last_scale_pref_save_time = now
 	_save_model_scale_preferences()
 
 
@@ -640,6 +871,18 @@ func _array_to_vector3(value) -> Vector3:
 	return Vector3(float(value[0]), float(value[1]), float(value[2]))
 
 
+func _get_builder_player_position() -> Vector3:
+	if is_instance_valid(_camera_controller):
+		return _camera_controller.global_position
+	return _camera.global_position
+
+
+func _get_builder_player_yaw() -> float:
+	if is_instance_valid(_camera_controller):
+		return _camera_controller.rotation.y
+	return _camera.rotation.y
+
+
 func _update_ui() -> void:
 	var asset := _get_current_asset()
 	_browser.update_status(
@@ -675,3 +918,201 @@ func _build_grid_visual() -> void:
 	mesh.surface_end()
 
 	_grid_visual.mesh = mesh
+
+# ── Multiplayer API ──────────────────────────────────────────────────────────
+
+func _on_host_requested() -> void:
+	if _is_online:
+		return
+
+	var err := NetworkManager.create_server()
+	if err == OK:
+		_browser.update_net_status("Hosting on port %d" % NetworkManager.DEFAULT_PORT)
+	else:
+		_browser.update_net_status("Host failed: %s" % error_string(err))
+
+func _on_join_requested(ip: String) -> void:
+	if _is_online:
+		return
+
+	if ip.is_empty():
+		ip = "127.0.0.1"
+	var err := NetworkManager.join_server(ip)
+	if err == OK:
+		_browser.update_net_status("Connecting to %s..." % ip)
+	else:
+		_browser.update_net_status("Join failed: %s" % error_string(err))
+
+
+func _on_disconnect_requested() -> void:
+	NetworkManager.disconnect_network()
+	_on_net_server_disconnected()
+
+
+func _capture_builder_mouse() -> void:
+	if _camera_controller.has_method("capture_mouse"):
+		_camera_controller.capture_mouse()
+	_browser.update_input_status(true, _test_mode)
+
+
+func _set_test_mode(enabled: bool) -> void:
+	_test_mode = enabled
+	if _camera_controller.has_method("set_test_mode"):
+		_camera_controller.set_test_mode(enabled)
+	if _preview != null:
+		_preview.visible = not _test_mode
+	_browser.update_input_status(Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED, _test_mode)
+
+func _old_on_net_player_connected(peer_id: int) -> void:
+	if _remote_players.has(peer_id): return
+	var rp: CharacterBody3D = REMOTE_PLAYER_SCENE.instantiate()
+	rp.name = "RemotePlayer_%d" % peer_id
+	rp.set("owner_peer_id", peer_id)
+	rp.set("player_label", "Игрок (id %d)" % peer_id)
+	rp.global_position = _camera.global_position + Vector3(0, 5, 0) # Spawn slightly above
+	get_tree().root.add_child(rp)
+	_remote_players[peer_id] = rp
+
+	# If I am host and someone joins, I should send them my entire map state!
+	if multiplayer.is_server():
+		_send_full_state_to_peer(peer_id)
+
+func _old_on_net_connected_to_server() -> void:
+	_is_online = true
+	var my_id := multiplayer.get_unique_id()
+	_on_net_player_connected(my_id)
+	for peer_id in multiplayer.get_peers():
+		_on_net_player_connected(peer_id)
+	_browser.update_net_status("Connected")
+
+func _old_on_net_player_disconnected(peer_id: int) -> void:
+	if _remote_players.has(peer_id):
+		var rp = _remote_players[peer_id]
+		if is_instance_valid(rp):
+			rp.queue_free()
+		_remote_players.erase(peer_id)
+
+func _old_on_net_server_disconnected() -> void:
+	_is_online = false
+	_browser.update_net_status("Offline")
+	for pid in _remote_players.keys():
+		var rp = _remote_players[pid]
+		if is_instance_valid(rp):
+			rp.queue_free()
+	_remote_players.clear()
+
+func _old_send_full_state_to_peer(peer_id: int) -> void:
+	for child in _placed_root.get_children():
+		if not child.is_in_group(BUILDER_GROUP): continue
+		var pack_name = child.get_meta("pack")
+		var model_name = child.get_meta("model")
+		var pos = child.position
+		var rot_y = child.rotation.y
+		var scl = child.scale.x
+		# Re-use the sync object name so it matches exactly
+		_rpc_sync_existing_object.rpc_id(peer_id, child.name, pack_name, model_name, pos, rot_y, scl)
+
+@rpc("authority", "reliable", "call_remote")
+func _old_rpc_sync_existing_object(object_name: String, pack_name: String, model_name: String, pos: Vector3, rot_y: float, scl: float) -> void:
+	var wrapper = _spawn_placed_object(pack_name, model_name, pos, rot_y, scl)
+	if wrapper:
+		wrapper.name = object_name
+
+
+func _on_net_player_connected(peer_id: int) -> void:
+	if _remote_players.has(peer_id):
+		return
+	_spawn_remote_player(peer_id, peer_id % 2)
+
+	if multiplayer.is_server():
+		_send_full_state_to_peer(peer_id)
+
+
+func _spawn_remote_player(peer_id: int, avatar_index: int) -> Node3D:
+	if _remote_players.has(peer_id):
+		var existing = _remote_players[peer_id]
+		if is_instance_valid(existing) and existing.has_method("set_model_index"):
+			existing.set_model_index(avatar_index)
+		return existing
+
+	var rp: Node3D = REMOTE_PLAYER_SCENE.instantiate()
+	rp.name = "RemotePlayer_%d" % peer_id
+	rp.set("owner_peer_id", peer_id)
+	rp.set("player_label", "Friend %d" % peer_id)
+	rp.set("model_index", avatar_index)
+	rp.global_position = _get_builder_player_position()
+	if _remote_root == null:
+		_remote_root = Node3D.new()
+		_remote_root.name = "RemotePlayers"
+		add_child(_remote_root)
+	_remote_root.add_child(rp)
+	_remote_players[peer_id] = rp
+
+	if peer_id == multiplayer.get_unique_id() and rp.has_method("set_local_hidden"):
+		rp.set_local_hidden(true)
+
+	return rp
+
+
+func _on_net_connected_to_server() -> void:
+	_is_online = true
+	var my_id := multiplayer.get_unique_id()
+	_spawn_remote_player(my_id, _local_avatar_index)
+	for peer_id in multiplayer.get_peers():
+		_on_net_player_connected(peer_id)
+	_browser.update_net_status("Connected")
+
+
+func _on_net_player_disconnected(peer_id: int) -> void:
+	if _remote_players.has(peer_id):
+		var rp = _remote_players[peer_id]
+		if is_instance_valid(rp):
+			rp.queue_free()
+		_remote_players.erase(peer_id)
+
+
+func _on_net_server_disconnected() -> void:
+	_is_online = false
+	_browser.update_net_status("Offline")
+	for pid in _remote_players.keys():
+		var rp = _remote_players[pid]
+		if is_instance_valid(rp):
+			rp.queue_free()
+	_remote_players.clear()
+
+
+func _on_net_connection_failed() -> void:
+	_is_online = false
+	_browser.update_net_status("Connection failed")
+
+
+func _send_full_state_to_peer(peer_id: int) -> void:
+	for child in _placed_root.get_children():
+		if not child.is_in_group(BUILDER_GROUP):
+			continue
+		var pack_name = child.get_meta("pack")
+		var model_name = child.get_meta("model")
+		var pos = child.position
+		var rot_y = child.rotation.y
+		var scl = child.scale.x
+		_rpc_sync_existing_object.rpc_id(peer_id, child.name, pack_name, model_name, pos, rot_y, scl)
+
+
+func _broadcast_full_state() -> void:
+	_rpc_clear_all_objects.rpc()
+	for peer_id in multiplayer.get_peers():
+		_send_full_state_to_peer(peer_id)
+
+
+@rpc("authority", "reliable", "call_remote")
+func _rpc_sync_existing_object(object_name: String, pack_name: String, model_name: String, pos: Vector3, rot_y: float, scl: float) -> void:
+	var wrapper = _spawn_placed_object(pack_name, model_name, pos, rot_y, scl)
+	if wrapper:
+		wrapper.name = object_name
+
+
+@rpc("any_peer", "unreliable", "call_remote")
+func _rpc_update_remote_player(peer_id: int, pos: Vector3, yaw: float, avatar_index: int) -> void:
+	var rp := _spawn_remote_player(peer_id, avatar_index)
+	if rp != null and rp.has_method("set_target"):
+		rp.set_target(pos, yaw)

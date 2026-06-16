@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="A.R.C.H."
-run/main_scene="uid://kvt561sck0y0"
+run/main_scene="res://scenes/mode_select.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 

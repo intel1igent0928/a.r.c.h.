@@ -8,6 +8,7 @@ signal player_connected(peer_id: int)
 signal player_disconnected(peer_id: int)
 signal connection_failed()
 signal server_disconnected()
+signal server_created()
 signal all_players_ready()
 signal grid_snapshot_received(rows: Array)
 
@@ -45,6 +46,7 @@ func create_server(port: int = DEFAULT_PORT) -> Error:
 	# Register host itself
 	connected_peers[1] = { "ready": false }
 	print("NetworkManager: Server started on port %d" % port)
+	server_created.emit()
 	return OK
 
 ## Connect to a remote host as a client.
